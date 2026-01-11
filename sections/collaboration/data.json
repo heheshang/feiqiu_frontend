@@ -1,0 +1,210 @@
+{
+  "_meta": {
+    "models": {
+      "screenshots": "屏幕截图记录，包含截图图片、类型（全屏/区域/窗口）、创建时间和标注信息",
+      "annotations": "截图上的标注元素，包含类型（箭头/矩形/文字/画笔）、位置、颜色、样式等属性",
+      "users": "用户信息，表示截图的发送者或接收者"
+    },
+    "relationships": [
+      "每个 Screenshot 可以包含多个 Annotation（标注元素）",
+      "Screenshot 记录创建者信息"
+    ]
+  },
+  "users": [
+    {
+      "id": "user-1",
+      "name": "张伟",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ZhangWei"
+    },
+    {
+      "id": "user-2",
+      "name": "李明",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiMing"
+    },
+    {
+      "id": "user-3",
+      "name": "王芳",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=WangFang"
+    }
+  ],
+  "screenshots": [
+    {
+      "id": "screenshot-1",
+      "type": "region",
+      "title": "界面问题反馈",
+      "imageUrl": "https://placehold.co/800x600/e2e8f0/64748b?text=Screenshot+1",
+      "thumbnailUrl": "https://placehold.co/200x150/e2e8f0/64748b?text=Preview",
+      "createdAt": "2024-01-09T14:30:00Z",
+      "createdBy": "user-1",
+      "annotations": [
+        {
+          "id": "anno-1",
+          "type": "rectangle",
+          "x": 100,
+          "y": 80,
+          "width": 200,
+          "height": 100,
+          "color": "#ef4444",
+          "lineWidth": 3
+        },
+        {
+          "id": "anno-2",
+          "type": "text",
+          "x": 110,
+          "y": 60,
+          "content": "这里需要修改",
+          "color": "#ef4444",
+          "fontSize": 16
+        },
+        {
+          "id": "anno-3",
+          "type": "arrow",
+          "startX": 320,
+          "startY": 130,
+          "endX": 280,
+          "endY": 130,
+          "color": "#3b82f6",
+          "lineWidth": 3
+        }
+      ],
+      "status": "draft"
+    },
+    {
+      "id": "screenshot-2",
+      "type": "fullscreen",
+      "title": "产品界面设计稿",
+      "imageUrl": "https://placehold.co/1920x1080/f1f5f9/475569?text=Fullscreen+Screenshot",
+      "thumbnailUrl": "https://placehold.co/200x150/f1f5f9/475569?text=Preview",
+      "createdAt": "2024-01-09T13:15:00Z",
+      "createdBy": "user-1",
+      "annotations": [
+        {
+          "id": "anno-4",
+          "type": "arrow",
+          "startX": 500,
+          "startY": 300,
+          "endX": 700,
+          "endY": 400,
+          "color": "#22c55e",
+          "lineWidth": 4
+        },
+        {
+          "id": "anno-5",
+          "type": "rectangle",
+          "x": 600,
+          "y": 350,
+          "width": 150,
+          "height": 80,
+          "color": "#22c55e",
+          "lineWidth": 3
+        },
+        {
+          "id": "anno-6",
+          "type": "text",
+          "x": 610,
+          "y": 330,
+          "content": "新增功能区域",
+          "color": "#22c55e",
+          "fontSize": 18
+        }
+      ],
+      "status": "sent",
+      "sentTo": "user-2"
+    },
+    {
+      "id": "screenshot-3",
+      "type": "window",
+      "title": "操作流程演示",
+      "imageUrl": "https://placehold.co/600x400/ede9fe/6b21a8?text=Window+Screenshot",
+      "thumbnailUrl": "https://placehold.co/200x150/ede9fe/6b21a8?text=Preview",
+      "createdAt": "2024-01-09T11:45:00Z",
+      "createdBy": "user-1",
+      "annotations": [
+        {
+          "id": "anno-7",
+          "type": "brush",
+          "points": [
+            {"x": 100, "y": 100},
+            {"x": 120, "y": 110},
+            {"x": 140, "y": 100},
+            {"x": 160, "y": 110},
+            {"x": 180, "y": 100}
+          ],
+          "color": "#f59e0b",
+          "lineWidth": 3
+        },
+        {
+          "id": "anno-8",
+          "type": "text",
+          "x": 100,
+          "y": 80,
+          "content": "点击这里开始",
+          "color": "#f59e0b",
+          "fontSize": 14
+        },
+        {
+          "id": "anno-9",
+          "type": "arrow",
+          "startX": 200,
+          "startY": 200,
+          "endX": 350,
+          "endY": 150,
+          "color": "#ef4444",
+          "lineWidth": 3
+        },
+        {
+          "id": "anno-10",
+          "type": "text",
+          "x": 360,
+          "y": 140,
+          "content": "然后转到这里",
+          "color": "#ef4444",
+          "fontSize": 14
+        }
+      ],
+      "status": "saved"
+    },
+    {
+      "id": "screenshot-4",
+      "type": "region",
+      "title": "错误提示",
+      "imageUrl": "https://placehold.co/400x300/fee2e2/dc2626?text=Error+Screenshot",
+      "thumbnailUrl": "https://placehold.co/200x150/fee2e2/dc2626?text=Preview",
+      "createdAt": "2024-01-09T10:20:00Z",
+      "createdBy": "user-1",
+      "annotations": [
+        {
+          "id": "anno-11",
+          "type": "rectangle",
+          "x": 50,
+          "y": 100,
+          "width": 300,
+          "height": 80,
+          "color": "#dc2626",
+          "lineWidth": 4
+        },
+        {
+          "id": "anno-12",
+          "type": "text",
+          "x": 60,
+          "y": 75,
+          "content": "⚠️ 错误提示信息",
+          "color": "#dc2626",
+          "fontSize": 16
+        },
+        {
+          "id": "anno-13",
+          "type": "arrow",
+          "startX": 200,
+          "startY": 50,
+          "endX": 150,
+          "endY": 95,
+          "color": "#dc2626",
+          "lineWidth": 3
+        }
+      ],
+      "status": "sent",
+      "sentTo": "user-3"
+    }
+  ]
+}

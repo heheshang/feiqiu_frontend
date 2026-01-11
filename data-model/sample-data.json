@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "description": "Sample data for the global data model",
+    "usage": "Use this data for testing and development. The actual data will come from the backend."
+  },
+  "departments": [
+    {
+      "id": "dept-root",
+      "name": "全公司",
+      "parentId": null,
+      "level": 0,
+      "memberCount": 20
+    },
+    {
+      "id": "dept-tech",
+      "name": "技术部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 8
+    },
+    {
+      "id": "dept-product",
+      "name": "产品部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 4
+    },
+    {
+      "id": "dept-design",
+      "name": "设计部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 4
+    }
+  ],
+  "users": [
+    {
+      "id": "user-1",
+      "name": "张伟",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ZhangWei",
+      "status": "online",
+      "department": "技术部",
+      "departmentId": "dept-tech",
+      "position": "前端工程师",
+      "email": "zhangwei@company.com",
+      "phone": "138-0001-0001",
+      "pinyin": "zhangwei",
+      "signature": "工作努力，生活快乐！"
+    },
+    {
+      "id": "user-2",
+      "name": "李明",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiMing",
+      "status": "online",
+      "department": "产品部",
+      "departmentId": "dept-product",
+      "position": "产品经理",
+      "email": "liming@company.com",
+      "phone": "138-0002-0002",
+      "pinyin": "liming"
+    },
+    {
+      "id": "user-3",
+      "name": "王芳",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=WangFang",
+      "status": "away",
+      "department": "设计部",
+      "departmentId": "dept-design",
+      "position": "UI设计师",
+      "email": "wangfang@company.com",
+      "phone": "138-0003-0003",
+      "pinyin": "wangfang"
+    }
+  ],
+  "networkConfig": {
+    "id": "net-config-001",
+    "udpPort": 2425,
+    "bindAddress": "0.0.0.0",
+    "broadcastAddress": "255.255.255.255",
+    "maxRetries": 3,
+    "timeout": 5000
+  },
+  "networkStatus": {
+    "ipAddress": "192.168.1.100",
+    "macAddress": "00:1A:2B:3C:4D:5E",
+    "connectionStatus": "connected",
+    "listeningPort": 2425,
+    "lastSeen": "2024-01-15T10:30:00Z",
+    "onlineUsers": 23
+  }
+}

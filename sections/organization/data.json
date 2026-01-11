@@ -1,0 +1,313 @@
+{
+  "_meta": {
+    "models": {
+      "departments": "部门树结构，包含层级关系、部门名称、成员数量",
+      "users": "用户信息，包含头像、姓名、职位、部门、在线状态等"
+    },
+    "relationships": [
+      "Department 可以有子部门，形成树形层级结构",
+      "每个 User 属于一个 Department",
+      "Department 的 memberCount 统计该部门下的所有用户数量"
+    ]
+  },
+  "departments": [
+    {
+      "id": "dept-root",
+      "name": "全公司",
+      "parentId": null,
+      "level": 0,
+      "memberCount": 20
+    },
+    {
+      "id": "dept-tech",
+      "name": "技术部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 8
+    },
+    {
+      "id": "dept-tech-frontend",
+      "name": "前端组",
+      "parentId": "dept-tech",
+      "level": 2,
+      "memberCount": 3
+    },
+    {
+      "id": "dept-tech-backend",
+      "name": "后端组",
+      "parentId": "dept-tech",
+      "level": 2,
+      "memberCount": 3
+    },
+    {
+      "id": "dept-tech-devops",
+      "name": "运维组",
+      "parentId": "dept-tech",
+      "level": 2,
+      "memberCount": 2
+    },
+    {
+      "id": "dept-product",
+      "name": "产品部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 4
+    },
+    {
+      "id": "dept-design",
+      "name": "设计部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 4
+    },
+    {
+      "id": "dept-marketing",
+      "name": "市场部",
+      "parentId": "dept-root",
+      "level": 1,
+      "memberCount": 4
+    }
+  ],
+  "users": [
+    {
+      "id": "user-1",
+      "name": "张伟",
+      "pinyin": "zhangwei",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ZhangWei",
+      "position": "前端工程师",
+      "department": "前端组",
+      "departmentId": "dept-tech-frontend",
+      "status": "online",
+      "email": "zhangwei@company.com",
+      "phone": "138-0001-0001"
+    },
+    {
+      "id": "user-2",
+      "name": "李明",
+      "pinyin": "liming",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiMing",
+      "position": "后端工程师",
+      "department": "后端组",
+      "departmentId": "dept-tech-backend",
+      "status": "online",
+      "email": "liming@company.com",
+      "phone": "138-0002-0002"
+    },
+    {
+      "id": "user-3",
+      "name": "王芳",
+      "pinyin": "wangfang",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=WangFang",
+      "position": "UI设计师",
+      "department": "设计部",
+      "departmentId": "dept-design",
+      "status": "away",
+      "email": "wangfang@company.com",
+      "phone": "138-0003-0003"
+    },
+    {
+      "id": "user-4",
+      "name": "孙磊",
+      "pinyin": "sunlei",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=SunLei",
+      "position": "产品经理",
+      "department": "产品部",
+      "departmentId": "dept-product",
+      "status": "offline",
+      "email": "sunlei@company.com",
+      "phone": "138-0004-0004"
+    },
+    {
+      "id": "user-5",
+      "name": "陈静",
+      "pinyin": "chenjing",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ChenJing",
+      "position": "前端工程师",
+      "department": "前端组",
+      "departmentId": "dept-tech-frontend",
+      "status": "online",
+      "email": "chenjing@company.com",
+      "phone": "138-0005-0005"
+    },
+    {
+      "id": "user-6",
+      "name": "刘洋",
+      "pinyin": "liuyang",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiuYang",
+      "position": "后端工程师",
+      "department": "后端组",
+      "departmentId": "dept-tech-backend",
+      "status": "away",
+      "email": "liuyang@company.com",
+      "phone": "138-0006-0006"
+    },
+    {
+      "id": "user-7",
+      "name": "黄婷",
+      "pinyin": "huangting",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=HuangTing",
+      "position": "UX设计师",
+      "department": "设计部",
+      "departmentId": "dept-design",
+      "status": "online",
+      "email": "huangting@company.com",
+      "phone": "138-0007-0007"
+    },
+    {
+      "id": "user-8",
+      "name": "周杰",
+      "pinyin": "zhoujie",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ZhouJie",
+      "position": "市场专员",
+      "department": "市场部",
+      "departmentId": "dept-marketing",
+      "status": "offline",
+      "email": "zhoujie@company.com",
+      "phone": "138-0008-0008"
+    },
+    {
+      "id": "user-9",
+      "name": "吴强",
+      "pinyin": "wuqiang",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=WuQiang",
+      "position": "技术总监",
+      "department": "技术部",
+      "departmentId": "dept-tech",
+      "status": "away",
+      "email": "wuqiang@company.com",
+      "phone": "138-0009-0009"
+    },
+    {
+      "id": "user-10",
+      "name": "郑敏",
+      "pinyin": "zhengmin",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ZhengMin",
+      "position": "产品总监",
+      "department": "产品部",
+      "departmentId": "dept-product",
+      "status": "online",
+      "email": "zhengmin@company.com",
+      "phone": "138-0010-0010"
+    },
+    {
+      "id": "user-11",
+      "name": "徐磊",
+      "pinyin": "xulei",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=XuLei",
+      "position": "前端工程师",
+      "department": "前端组",
+      "departmentId": "dept-tech-frontend",
+      "status": "offline",
+      "email": "xulei@company.com",
+      "phone": "138-0011-0011"
+    },
+    {
+      "id": "user-12",
+      "name": "林娜",
+      "pinyin": "linna",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LinNa",
+      "position": "产品经理",
+      "department": "产品部",
+      "departmentId": "dept-product",
+      "status": "online",
+      "email": "linna@company.com",
+      "phone": "138-0012-0012"
+    },
+    {
+      "id": "user-13",
+      "name": "郭浩",
+      "pinyin": "guohao",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=GuoHao",
+      "position": "运维工程师",
+      "department": "运维组",
+      "departmentId": "dept-tech-devops",
+      "status": "online",
+      "email": "guohao@company.com",
+      "phone": "138-0013-0013"
+    },
+    {
+      "id": "user-14",
+      "name": "何丽",
+      "pinyin": "heli",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=HeLi",
+      "position": "UI设计师",
+      "department": "设计部",
+      "departmentId": "dept-design",
+      "status": "away",
+      "email": "heli@company.com",
+      "phone": "138-0014-0014"
+    },
+    {
+      "id": "user-15",
+      "name": "高勇",
+      "pinyin": "gaoyong",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=GaoYong",
+      "position": "后端工程师",
+      "department": "后端组",
+      "departmentId": "dept-tech-backend",
+      "status": "online",
+      "email": "gaoyong@company.com",
+      "phone": "138-0015-0015"
+    },
+    {
+      "id": "user-16",
+      "name": "袁媛",
+      "pinyin": "yuanyuan",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=YuanYuan",
+      "position": "市场经理",
+      "department": "市场部",
+      "departmentId": "dept-marketing",
+      "status": "offline",
+      "email": "yuanyuan@company.com",
+      "phone": "138-0016-0016"
+    },
+    {
+      "id": "user-17",
+      "name": "马超",
+      "pinyin": "machao",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=MaChao",
+      "position": "运维工程师",
+      "department": "运维组",
+      "departmentId": "dept-tech-devops",
+      "status": "away",
+      "email": "machao@company.com",
+      "phone": "138-0017-0017"
+    },
+    {
+      "id": "user-18",
+      "name": "梁雪",
+      "pinyin": "liangxue",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiangXue",
+      "position": "市场专员",
+      "department": "市场部",
+      "departmentId": "dept-marketing",
+      "status": "online",
+      "email": "liangxue@company.com",
+      "phone": "138-0018-0018"
+    },
+    {
+      "id": "user-19",
+      "name": "谢军",
+      "pinyin": "xiejun",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=XieJun",
+      "position": "产品经理",
+      "department": "产品部",
+      "departmentId": "dept-product",
+      "status": "offline",
+      "email": "xiejun@company.com",
+      "phone": "138-0019-0019"
+    },
+    {
+      "id": "user-20",
+      "name": "唐慧",
+      "pinyin": "tanghui",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=TangHui",
+      "position": "交互设计师",
+      "department": "设计部",
+      "departmentId": "dept-design",
+      "status": "online",
+      "email": "tanghui@company.com",
+      "phone": "138-0020-0020"
+    }
+  ]
+}

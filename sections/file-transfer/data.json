@@ -1,0 +1,162 @@
+{
+  "_meta": {
+    "models": {
+      "fileTransfers": "文件传输记录，表示单个文件的发送或接收操作，包含传输状态、进度和操作信息",
+      "users": "用户信息，表示传输的发送者或接收者"
+    },
+    "relationships": [
+      "每个 FileTransfer 都有一个 sender（发送者）和一个 receiver（接收者）",
+      "FileTransfer 的 direction 字段标识是从当前用户视角看的传输方向（send=发送，receive=接收）"
+    ]
+  },
+  "users": [
+    {
+      "id": "user-1",
+      "name": "张伟",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ZhangWei"
+    },
+    {
+      "id": "user-2",
+      "name": "李明",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiMing"
+    },
+    {
+      "id": "user-3",
+      "name": "王芳",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=WangFang"
+    },
+    {
+      "id": "user-4",
+      "name": "孙磊",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=SunLei"
+    },
+    {
+      "id": "user-5",
+      "name": "陈静",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=ChenJing"
+    }
+  ],
+  "fileTransfers": [
+    {
+      "id": "transfer-1",
+      "direction": "send",
+      "senderId": "user-1",
+      "receiverId": "user-2",
+      "fileName": "产品设计规范文档.pdf",
+      "fileSize": 15728640,
+      "fileType": "pdf",
+      "status": "transferring",
+      "progress": 67,
+      "transferSpeed": 15728640,
+      "remainingTime": 5,
+      "startTime": "2024-01-09T10:30:00Z",
+      "endTime": null
+    },
+    {
+      "id": "transfer-2",
+      "direction": "receive",
+      "senderId": "user-3",
+      "receiverId": "user-1",
+      "fileName": "UI设计稿v2.0.fig",
+      "fileSize": 52428800,
+      "fileType": "fig",
+      "status": "transferring",
+      "progress": 42,
+      "transferSpeed": 20971520,
+      "remainingTime": 12,
+      "startTime": "2024-01-09T10:28:00Z",
+      "endTime": null
+    },
+    {
+      "id": "transfer-3",
+      "direction": "send",
+      "senderId": "user-1",
+      "receiverId": "user-4",
+      "fileName": "项目计划表.xlsx",
+      "fileSize": 1048576,
+      "fileType": "xlsx",
+      "status": "completed",
+      "progress": 100,
+      "transferSpeed": 0,
+      "remainingTime": 0,
+      "startTime": "2024-01-09T09:15:00Z",
+      "endTime": "2024-01-09T09:16:00Z"
+    },
+    {
+      "id": "transfer-4",
+      "direction": "receive",
+      "senderId": "user-2",
+      "receiverId": "user-1",
+      "fileName": "会议记录.docx",
+      "fileSize": 524288,
+      "fileType": "docx",
+      "status": "paused",
+      "progress": 35,
+      "transferSpeed": 0,
+      "remainingTime": 0,
+      "startTime": "2024-01-09T10:25:00Z",
+      "endTime": null
+    },
+    {
+      "id": "transfer-5",
+      "direction": "send",
+      "senderId": "user-1",
+      "receiverId": "user-5",
+      "fileName": "产品需求文档.docx",
+      "fileSize": 2097152,
+      "fileType": "docx",
+      "status": "waiting",
+      "progress": 0,
+      "transferSpeed": 0,
+      "remainingTime": 0,
+      "startTime": "2024-01-09T10:35:00Z",
+      "endTime": null
+    },
+    {
+      "id": "transfer-6",
+      "direction": "receive",
+      "senderId": "user-4",
+      "receiverId": "user-1",
+      "fileName": "系统架构图.png",
+      "fileSize": 3145728,
+      "fileType": "png",
+      "status": "completed",
+      "progress": 100,
+      "transferSpeed": 0,
+      "remainingTime": 0,
+      "startTime": "2024-01-09T08:45:00Z",
+      "endTime": "2024-01-09T08:46:00Z"
+    },
+    {
+      "id": "transfer-7",
+      "direction": "send",
+      "senderId": "user-1",
+      "receiverId": "user-3",
+      "fileName": "测试报告.pdf",
+      "fileSize": 8388608,
+      "fileType": "pdf",
+      "status": "failed",
+      "progress": 78,
+      "transferSpeed": 0,
+      "remainingTime": 0,
+      "startTime": "2024-01-09T09:30:00Z",
+      "endTime": "2024-01-09T09:32:00Z",
+      "errorMessage": "网络连接中断"
+    },
+    {
+      "id": "transfer-8",
+      "direction": "send",
+      "senderId": "user-1",
+      "receiverId": "user-2",
+      "fileName": "演示视频.mp4",
+      "fileSize": 209715200,
+      "fileType": "mp4",
+      "status": "cancelled",
+      "progress": 23,
+      "transferSpeed": 0,
+      "remainingTime": 0,
+      "startTime": "2024-01-09T09:00:00Z",
+      "endTime": "2024-01-09T09:05:00Z"
+    }
+  ]
+}

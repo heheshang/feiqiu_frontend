@@ -1,0 +1,247 @@
+{
+  "conversations": [
+    {
+      "id": "conv-1",
+      "type": "single",
+      "pinned": true,
+      "unreadCount": 2,
+      "lastMessage": {
+        "id": "msg-15",
+        "content": "好的，下午三点会议室见",
+        "type": "text",
+        "timestamp": "2025-01-09T14:30:00Z",
+        "senderId": "user-2",
+        "senderName": "李明"
+      },
+      "participant": {
+        "id": "user-2",
+        "name": "李明",
+        "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Liming",
+        "status": "online",
+        "department": "产品部"
+      }
+    },
+    {
+      "id": "conv-2",
+      "type": "single",
+      "pinned": false,
+      "unreadCount": 0,
+      "lastMessage": {
+        "id": "msg-12",
+        "content": "[图片]",
+        "type": "image",
+        "timestamp": "2025-01-09T12:15:00Z",
+        "senderId": "user-3",
+        "senderName": "王芳"
+      },
+      "participant": {
+        "id": "user-3",
+        "name": "王芳",
+        "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Wangfang",
+        "status": "offline",
+        "department": "设计部"
+      }
+    },
+    {
+      "id": "conv-3",
+      "type": "group",
+      "pinned": true,
+      "unreadCount": 5,
+      "lastMessage": {
+        "id": "msg-25",
+        "content": "@张伟 请看一下这个设计稿",
+        "type": "text",
+        "timestamp": "2025-01-09T14:45:00Z",
+        "senderId": "user-4",
+        "senderName": "赵强"
+      },
+      "group": {
+        "id": "group-1",
+        "name": "产品研发群",
+        "avatar": "https://api.dicebear.com/7.x/identicon/svg?seed=product",
+        "memberCount": 12,
+        "members": [
+          {
+            "id": "user-1",
+            "name": "张伟",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Zhangwei"
+          },
+          {
+            "id": "user-2",
+            "name": "李明",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Liming"
+          },
+          {
+            "id": "user-4",
+            "name": "赵强",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Zhaoqiang"
+          },
+          {
+            "id": "user-5",
+            "name": "刘洋",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=LiuYang"
+          }
+        ]
+      }
+    },
+    {
+      "id": "conv-4",
+      "type": "group",
+      "pinned": false,
+      "unreadCount": 0,
+      "lastMessage": {
+        "id": "msg-18",
+        "content": "收到",
+        "type": "text",
+        "timestamp": "2025-01-09T10:30:00Z",
+        "senderId": "user-6",
+        "senderName": "陈静"
+      },
+      "group": {
+        "id": "group-2",
+        "name": "设计团队",
+        "avatar": "https://api.dicebear.com/7.x/identicon/svg?seed=design",
+        "memberCount": 8,
+        "members": [
+          {
+            "id": "user-3",
+            "name": "王芳",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Wangfang"
+          },
+          {
+            "id": "user-6",
+            "name": "陈静",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Chenjing"
+          }
+        ]
+      }
+    },
+    {
+      "id": "conv-5",
+      "type": "single",
+      "pinned": false,
+      "unreadCount": 0,
+      "lastMessage": {
+        "id": "msg-8",
+        "content": "好的，谢谢！",
+        "type": "text",
+        "timestamp": "2025-01-09T09:00:00Z",
+        "senderId": "user-1",
+        "senderName": "我"
+      },
+      "participant": {
+        "id": "user-7",
+        "name": "孙磊",
+        "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sunlei",
+        "status": "away",
+        "department": "技术部"
+      }
+    }
+  ],
+  "currentConversation": {
+    "id": "conv-1",
+    "type": "single",
+    "pinned": true,
+    "unreadCount": 2,
+    "participant": {
+      "id": "user-2",
+      "name": "李明",
+      "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Liming",
+      "status": "online",
+      "department": "产品部"
+    },
+    "messages": [
+      {
+        "id": "msg-10",
+        "type": "text",
+        "content": "你好，请问今天有时间过一下需求吗？",
+        "timestamp": "2025-01-09T14:00:00Z",
+        "senderId": "user-1",
+        "senderName": "我",
+        "status": "read",
+        "reactions": []
+      },
+      {
+        "id": "msg-11",
+        "type": "text",
+        "content": "有的，下午2点之后都可以",
+        "timestamp": "2025-01-09T14:05:00Z",
+        "senderId": "user-2",
+        "senderName": "李明",
+        "status": "read",
+        "reactions": [
+          {
+            "emoji": "👍",
+            "users": [
+              {
+                "id": "user-1",
+                "name": "我"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "msg-12",
+        "type": "text",
+        "content": "太好了，我整理了一下新的需求文档",
+        "timestamp": "2025-01-09T14:10:00Z",
+        "senderId": "user-1",
+        "senderName": "我",
+        "status": "read",
+        "reactions": []
+      },
+      {
+        "id": "msg-13",
+        "type": "text",
+        "content": "好的，发给我看看",
+        "timestamp": "2025-01-09T14:15:00Z",
+        "senderId": "user-2",
+        "senderName": "李明",
+        "status": "read",
+        "reactions": []
+      },
+      {
+        "id": "msg-14",
+        "type": "text",
+        "content": "文档已经发到你的邮箱了",
+        "timestamp": "2025-01-09T14:20:00Z",
+        "senderId": "user-1",
+        "senderName": "我",
+        "status": "read",
+        "reactions": [],
+        "quote": {
+          "messageId": "msg-13",
+          "content": "好的，发给我看看",
+          "senderName": "李明"
+        }
+      },
+      {
+        "id": "msg-15",
+        "type": "text",
+        "content": "好的，下午三点会议室见",
+        "timestamp": "2025-01-09T14:30:00Z",
+        "senderId": "user-2",
+        "senderName": "李明",
+        "status": "unread",
+        "reactions": []
+      },
+      {
+        "id": "msg-16",
+        "type": "emoji",
+        "content": "😊",
+        "timestamp": "2025-01-09T14:31:00Z",
+        "senderId": "user-1",
+        "senderName": "我",
+        "status": "unread",
+        "reactions": []
+      }
+    ]
+  },
+  "currentUser": {
+    "id": "user-1",
+    "name": "张伟",
+    "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Zhangwei",
+    "status": "online"
+  }
+}

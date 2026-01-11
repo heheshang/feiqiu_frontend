@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "models": {
+      "user": "当前登录用户的个人信息，包含头像、昵称、个性签名和在线状态。",
+      "networkConfig": "网络配置参数，包含UDP端口、绑定地址等可修改的设置。",
+      "networkStatus": "当前网络连接状态，显示IP地址、连接状态和监听端口等只读信息。"
+    },
+    "relationships": [
+      "User 关联到一个 NetworkConfig（用户的网络设置）",
+      "NetworkStatus 基于 NetworkConfig 显示当前实际连接状态"
+    ]
+  },
+  "user": {
+    "id": "user-001",
+    "name": "张三",
+    "avatarUrl": "",
+    "signature": "工作努力，生活快乐！",
+    "status": "online",
+    "department": "技术部"
+  },
+  "networkConfig": {
+    "id": "net-config-001",
+    "udpPort": 2425,
+    "bindAddress": "0.0.0.0",
+    "broadcastAddress": "255.255.255.255",
+    "maxRetries": 3,
+    "timeout": 5000
+  },
+  "networkStatus": {
+    "ipAddress": "192.168.1.100",
+    "macAddress": "00:1A:2B:3C:4D:5E",
+    "connectionStatus": "connected",
+    "listeningPort": 2425,
+    "lastSeen": "2024-01-15T10:30:00Z",
+    "onlineUsers": 23
+  }
+}
