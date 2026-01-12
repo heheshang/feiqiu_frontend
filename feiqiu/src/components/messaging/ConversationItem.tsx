@@ -29,7 +29,7 @@ export function ConversationItem({ conversation, isActive, onClick }: Conversati
   const isGroup = conversation.type === 'group'
   const displayName = isGroup ? conversation.group?.name : conversation.participant?.name
   const displayAvatar = isGroup ? conversation.group?.avatar : conversation.participant?.avatar
-  const lastMessageTime = formatTime(conversation.lastMessage.timestamp)
+  const lastMessageTime = conversation.lastMessage ? formatTime(conversation.lastMessage.timestamp) : ''
   const userStatus = !isGroup ? conversation.participant?.status : undefined
 
   const containerClass = cn(
@@ -99,15 +99,19 @@ export function ConversationItem({ conversation, isActive, onClick }: Conversati
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <p className={messageClass}>
-            {conversation.lastMessage.type === 'image' && <span className="mr-1">📷</span>}
-            {conversation.lastMessage.senderId !== 'user-1' && (
-              <span className="font-bold mr-1">
-                {isGroup ? `${conversation.lastMessage.senderName}: ` : ''}
-              </span>
-            )}
-            {conversation.lastMessage.content}
-          </p>
+          {conversation.lastMessage ? (
+            <p className={messageClass}>
+              {conversation.lastMessage.type === 'image' && <span className="mr-1">📷</span>}
+              {conversation.lastMessage.senderId !== 'user-1' && (
+                <span className="font-bold mr-1">
+                  {isGroup ? `${conversation.lastMessage.senderName}: ` : ''}
+                </span>
+              )}
+              {conversation.lastMessage.content}
+            </p>
+          ) : (
+            <p className={messageClass}>暂无消息</p>
+          )}
 
           {conversation.unreadCount > 0 && (
             <span className={badgeClass}>
