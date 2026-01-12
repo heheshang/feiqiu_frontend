@@ -75,7 +75,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-              .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
             // Get AppHandle for emitting events
@@ -132,9 +132,11 @@ pub fn run() {
 
             // Initialize database and repositories
             tracing::info!("Initializing database...");
-            let app_state_for_db = app_state_for_setup.clone();
-            let db = match tauri::async_runtime::block_on(async move {
-                app_state_for_db.init_database().await
+            let db = match tauri::async_runtime::block_on({
+                let app_state = app_state_for_setup.clone();
+                async move {
+                    app_state.init_database().await
+                }
             }) {
                 Ok(db) => db,
                 Err(e) => {
@@ -165,7 +167,7 @@ pub fn run() {
                 Ok(u) => u,
                 Err(e) => {
                     tracing::error!("Failed to bind UDP transport after retries: {}", e);
-                    return Err(Box::new(e));
+                    return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
                 }
             };
 
@@ -177,7 +179,7 @@ pub fn run() {
                 }
                 Err(e) => {
                     tracing::error!("Failed to bind UDP send transport: {}", e);
-                    return Err(Box::new(e));
+                    return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
                 }
             };
 
@@ -186,8 +188,7 @@ pub fn run() {
 
             // Initialize MessageHandler
             tracing::info!("Initializing MessageHandler...");
-            let app_state_for_handler = app_state_for_setup.clone();
-            let app_state_arc = std::sync::Arc::new(app_state_for_handler);
+            let app_state_arc = std::sync::Arc::new(app_state_for_setup.clone());
             let message_handler = MessageHandler::new(udp_send, config.clone())
                 .with_app_state(app_state_arc);
             app_state_for_setup.init_message_handler(message_handler);

@@ -52,3 +52,4 @@ Thumbs.db
 *.seed
 *.pid.lock
 .turbo/
+target/*
