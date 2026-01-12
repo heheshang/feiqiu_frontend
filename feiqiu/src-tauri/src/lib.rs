@@ -25,7 +25,7 @@ pub use state::AppState;
 pub use state::app_state::{TauriEvent, PeerDiscoveredDto};
 
 // Import Tauri commands from submodules
-use commands::peer::{get_peers, get_online_peers, get_peer_by_ip, get_peer_stats};
+use commands::peer::{get_peers, get_online_peers, get_peer_by_ip, get_peer_stats, get_network_status};
 use commands::config::{get_config, set_config, reset_config, get_config_value, set_config_value};
 use commands::events::poll_events;
 use commands::message::{send_message, send_text_message, get_messages};
@@ -253,6 +253,7 @@ pub fn run() {
             get_online_peers,
             get_peer_by_ip,
             get_peer_stats,
+            get_network_status,
             get_config,
             set_config,
             reset_config,

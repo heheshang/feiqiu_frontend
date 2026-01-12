@@ -5,9 +5,31 @@
 use crate::state::AppState;
 use crate::storage::entities::messages;
 use crate::{NeoLanError, Result};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use tauri::Emitter;
+
+/// Message filters for get_messages command
+#[derive(Clone, Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageFilters {
+    /// Filter by sender IP address
+    #[serde(default)]
+    pub sender_ip: Option<String>,
+    /// Filter by receiver IP address
+    #[serde(default)]
+    pub receiver_ip: Option<String>,
+    /// Filter by minimum timestamp (i64 milliseconds)
+    #[serde(default)]
+    pub after: Option<i64>,
+    /// Filter by maximum timestamp (i64 milliseconds)
+    #[serde(default)]
+    pub before: Option<i64>,
+    /// Limit number of results
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
 
 /// Message data transfer object for frontend
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -59,22 +81,22 @@ pub struct MessageSentEvent {
 /// Send a text message to a peer
 ///
 /// # Arguments
-/// * `peer_ip` - IP address of the target peer
 /// * `content` - Message content to send
+/// * `receiver_ip` - IP address of the target peer
 /// * `app` - Tauri app handle for emitting events
 /// * `state` - Application state
 ///
 /// # Returns
-/// * `Ok(msg_id)` - Message ID of the sent message
+/// * `Ok(message_dto)` - Message that was sent
 /// * `Err(String)` - Error message if sending failed
 #[tauri::command]
 pub async fn send_message(
-    peer_ip: String,
     content: String,
+    receiver_ip: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<String> {
-    tracing::info!("send_message called: peer_ip={}, content_len={}", peer_ip, content.len());
+) -> Result<MessageDto> {
+    tracing::info!("send_message called: receiver_ip={}, content_len={}", receiver_ip, content.len());
 
     // Validate content
     if content.trim().is_empty() {
@@ -84,21 +106,38 @@ pub async fn send_message(
     }
 
     // Parse IP address
-    let target_ip: IpAddr = peer_ip
+    let target_ip: IpAddr = receiver_ip
         .parse()
         .map_err(|e| NeoLanError::Validation(format!("Invalid IP address: {}", e)))?;
 
     // Get config for local IP
     let config = state.get_config();
-    let _local_ip = config.bind_ip.clone();
+    let local_ip = config.bind_ip.clone();
 
     // Send message through state
     let msg_id = state.send_message(target_ip, &content)?;
 
+    // Create a DTO to return (this will be updated when the message is saved to DB)
+    let now = Utc::now().naive_utc();
+    let dto = MessageDto {
+        id: 0, // Will be set when saved to DB
+        msg_id: msg_id.clone(),
+        sender_ip: local_ip.clone(),
+        sender_name: config.username.clone(),
+        receiver_ip: receiver_ip.clone(),
+        msg_type: 0, // IPMSG_SENDMSG
+        content,
+        is_encrypted: false,
+        is_offline: false,
+        sent_at: now.and_utc().timestamp_millis(),
+        received_at: None,
+        created_at: now.and_utc().timestamp_millis(),
+    };
+
     // Emit message-sent event
     let sent_event = MessageSentEvent {
         msg_id: msg_id.clone(),
-        receiver_ip: peer_ip.clone(),
+        receiver_ip: receiver_ip.clone(),
     };
     if let Err(e) = app.emit("message-sent", sent_event) {
         tracing::error!("Failed to emit message-sent event: {}", e);
@@ -108,41 +147,38 @@ pub async fn send_message(
     // when the UDP message is received via listen_incoming callback
 
     tracing::info!("Message sent successfully: msg_id={}", msg_id);
-    Ok(msg_id)
+    Ok(dto)
 }
 
 /// Send a text message to a peer (alias with better naming)
 #[tauri::command]
 pub async fn send_text_message(
-    peer_ip: String,
     content: String,
+    receiver_ip: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<String> {
-    send_message(peer_ip, content, app, state).await
+) -> Result<MessageDto> {
+    send_message(content, receiver_ip, app, state).await
 }
 
-/// Get messages with a specific peer
+/// Get messages with optional filters
 ///
 /// # Arguments
-/// * `peer_ip` - IP address of the peer
-/// * `limit` - Maximum number of messages to retrieve (default 50)
+/// * `filters` - Optional filters to apply (senderIp, receiverIp, after, before, limit)
+/// * `state` - Application state
 ///
 /// # Returns
-/// * `Ok(messages)` - List of messages with the peer
+/// * `Ok(messages)` - List of matching messages
 /// * `Err(String)` - Error message if query failed
 #[tauri::command]
 pub async fn get_messages(
-    peer_ip: String,
-    limit: Option<u64>,
+    filters: Option<MessageFilters>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<Vec<MessageDto>> {
-    let limit = limit.unwrap_or(50);
-    tracing::info!("get_messages called: peer_ip={}, limit={}", peer_ip, limit);
+    let filters = filters.unwrap_or_default();
+    let limit = filters.limit.unwrap_or(50);
 
-    // Validate IP address format
-    let _ip: IpAddr = peer_ip
-        .parse()
-        .map_err(|e| NeoLanError::Validation(format!("Invalid IP address: {}", e)))?;
+    tracing::info!("get_messages called: filters={:?}, limit={}", filters, limit);
 
     // Validate limit
     if limit == 0 || limit > 1000 {
@@ -151,16 +187,53 @@ pub async fn get_messages(
         ));
     }
 
-    // TODO: Integrate with MessageRepository when database is added to AppState
-    // For now, return empty vector as placeholder
-    // Future implementation:
-    // let repo = state.get_message_repo()?;
-    // let models = repo.find_by_peer(&peer_ip, limit as usize).await?;
-    // let dtos: Vec<MessageDto> = models.into_iter().map(|m| m.into()).collect();
-    // Ok(dtos)
+    // Get message repository
+    let repo = state.get_message_repo()
+        .ok_or_else(|| NeoLanError::Storage("Message repository not initialized".to_string()))?;
 
-    tracing::warn!("get_messages: Database not yet integrated, returning empty result");
-    Ok(Vec::new())
+    // Build query based on filters
+    let mut models = repo.find_all(limit).await?;
+
+    // Apply sender IP filter
+    if let Some(ref sender_ip) = filters.sender_ip {
+        // Validate IP format
+        let _ip: IpAddr = sender_ip.parse()
+            .map_err(|e| NeoLanError::Validation(format!("Invalid sender IP address: {}", e)))?;
+
+        models = models.into_iter()
+            .filter(|m| m.sender_ip == *sender_ip)
+            .collect();
+    }
+
+    // Apply receiver IP filter
+    if let Some(ref receiver_ip) = filters.receiver_ip {
+        // Validate IP format
+        let _ip: IpAddr = receiver_ip.parse()
+            .map_err(|e| NeoLanError::Validation(format!("Invalid receiver IP address: {}", e)))?;
+
+        models = models.into_iter()
+            .filter(|m| m.receiver_ip == *receiver_ip)
+            .collect();
+    }
+
+    // Apply timestamp filters
+    if let Some(after) = filters.after {
+        models = models.into_iter()
+            .filter(|m| m.sent_at.and_utc().timestamp_millis() >= after)
+            .collect();
+    }
+
+    if let Some(before) = filters.before {
+        models = models.into_iter()
+            .filter(|m| m.sent_at.and_utc().timestamp_millis() <= before)
+            .collect();
+    }
+
+    // Convert to DTOs
+    let dtos: Vec<MessageDto> = models.into_iter().map(|m| m.into()).collect();
+
+    tracing::info!("get_messages: returning {} messages", dtos.len());
+    Ok(dtos)
 }
 
 #[cfg(test)]

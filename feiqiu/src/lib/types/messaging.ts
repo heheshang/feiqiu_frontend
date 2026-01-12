@@ -52,7 +52,7 @@ export interface Conversation {
   type: ConversationType
   pinned: boolean
   unreadCount: number
-  lastMessage: {
+  lastMessage?: {
     id: string
     content: string
     type: MessageType

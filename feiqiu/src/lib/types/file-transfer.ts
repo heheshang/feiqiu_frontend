@@ -35,4 +35,6 @@ export interface FileTransferProps {
   onOpenFolder?: (id: string) => void
   onRedownload?: (id: string) => void
   onSendFile?: (files: File[]) => void
+  onAcceptTransfer?: (id: string) => void
+  onRejectTransfer?: (id: string) => void
 }

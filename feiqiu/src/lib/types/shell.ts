@@ -12,7 +12,7 @@ export interface UserMenuItem {
   action: () => void
 }
 
-export type NavTab = 'chat' | 'contacts' | 'organization'
+export type NavTab = 'chat' | 'contacts' | 'organization'|'files'
 
 export type UserStatus = 'online' | 'away' | 'busy' | 'offline'
 

@@ -216,6 +216,52 @@ pub struct PeerStats {
     pub offline: usize,
 }
 
+/// Network status
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkStatus {
+    /// Whether network is connected
+    pub is_connected: bool,
+
+    /// Bound IP address
+    pub bind_ip: String,
+
+    /// UDP port
+    pub udp_port: u16,
+
+    /// Number of online peers
+    pub peers_count: usize,
+
+    /// Number of active file transfers
+    pub active_transfers: usize,
+}
+
+/// Get network status
+///
+/// This command returns the current network connection status.
+///
+/// # Frontend Usage
+/// ```typescript
+/// import { invoke } from "@tauri-apps/api/core";
+/// const status = await invoke<NetworkStatus>("get_network_status");
+/// console.log(`Connected: ${status.is_connected}, Peers: ${status.peers_count}`);
+/// ```
+#[tauri::command]
+pub fn get_network_status(state: tauri::State<AppState>) -> Result<NetworkStatus> {
+    tracing::info!("get_network_status called");
+
+    let config = state.get_config();
+    let peers = state.get_online_peers();
+
+    Ok(NetworkStatus {
+        is_connected: !peers.is_empty(),
+        bind_ip: config.bind_ip,
+        udp_port: config.udp_port,
+        peers_count: peers.len(),
+        active_transfers: 0, // TODO: Track active transfers
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
