@@ -12,9 +12,29 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# 数据库
+sea-orm = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "with-json", "with-chrono"] }
+sea-orm-migration = "1"
+tokio = { version = "1", features = ["full"] }
+
+# 工具库
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+whoami = "1"
+dirs = "5"
+md-5 = "0.10"
+
+# 示例程序依赖
+ctrlc = "3"
+# 编码转换 (用于飞秋 GBK 编码)
+encoding_rs = "0.8"
 
 [features]
 default = ["custom-protocol"]
