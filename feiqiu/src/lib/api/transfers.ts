@@ -11,7 +11,7 @@ import type { FileTransfer } from '../converters'
 /**
  * File transfer filters for getFileTransfers
  */
-export interface TransferFilters {
+export interface TransferFilters extends Record<string, unknown> {
   /** Filter by peer IP address */
   peerIp?: string
   /** Filter by transfer direction */

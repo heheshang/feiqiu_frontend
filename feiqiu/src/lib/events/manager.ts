@@ -19,10 +19,10 @@ const DEFAULT_POLL_INTERVAL = 1000
 const DEFAULT_BATCH_SIZE = 100
 
 /**
- * Event listener entry
+ * Event listener entry (without generic for Map storage)
  */
-interface ListenerEntry<T extends Event = Event> {
-  listener: EventListener<T>
+interface ListenerEntry {
+  listener: EventListener
   options: EventListenerOptions
 }
 
@@ -171,7 +171,7 @@ class EventsManager {
       this.listeners.set(eventType, entries)
     }
 
-    entries.push({ listener, options })
+    entries.push({ listener: listener as EventListener, options })
 
     // Auto-start polling if this is the first listener
     if (this.listeners.size === 1 && !this.isPolling) {

@@ -11,7 +11,7 @@ import type { Message } from '../converters'
 /**
  * Message filters for getMessages
  */
-export interface MessageFilters {
+export interface MessageFilters extends Record<string, unknown> {
   /** Filter by sender IP address */
   senderIp?: string
   /** Filter by receiver IP address */
