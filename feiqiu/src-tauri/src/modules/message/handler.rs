@@ -16,6 +16,7 @@ use crate::network::udp::UdpTransport;
 use crate::network::{msg_type, serialize_message, ProtocolMessage};
 use crate::state::app_state::TauriEvent;
 use crate::state::AppState;
+use crate::storage::contact_repo::ContactRepository;
 use crate::storage::message_repo::{MessageModel, MessageRepository};
 use crate::{NeoLanError, Result};
 use chrono::Utc;
@@ -46,6 +47,9 @@ pub struct MessageHandler {
 
     /// File transfer response handler (optional)
     file_transfer: Option<Arc<FileTransferResponse>>,
+
+    /// Contact repository for auto-adding contacts (optional)
+    contact_repo: Option<Arc<ContactRepository>>,
 }
 
 impl MessageHandler {
@@ -76,6 +80,7 @@ impl MessageHandler {
             message_repo: None,
             app_state: None,
             file_transfer: None,
+            contact_repo: None,
         }
     }
 
@@ -100,6 +105,7 @@ impl MessageHandler {
             message_repo: Some(message_repo),
             app_state: None,
             file_transfer: None,
+            contact_repo: None,
         }
     }
 
@@ -118,6 +124,15 @@ impl MessageHandler {
     /// * `file_transfer` - File transfer response handler
     pub fn with_file_transfer(mut self, file_transfer: Arc<FileTransferResponse>) -> Self {
         self.file_transfer = Some(file_transfer);
+        self
+    }
+
+    /// Set the contact repository for auto-adding contacts
+    ///
+    /// # Arguments
+    /// * `contact_repo` - Contact repository reference
+    pub fn with_contact_repo(mut self, contact_repo: Arc<ContactRepository>) -> Self {
+        self.contact_repo = Some(contact_repo);
         self
     }
 
@@ -472,30 +487,34 @@ impl MessageHandler {
         sender_ip: IpAddr,
         local_ip: IpAddr,
     ) -> Result<()> {
-        // Get peer info to check if we need to create a contact
-        let peer_info_opt = if let Some(ref manager) = self.manager {
-            let peers = unsafe { manager.peers.lock() };
-            peers.get(&sender_ip).cloned()
-        };
-
         // Check if sender is already in contacts by IP address
-        let should_add_contact = if let Some(ref repo) = self.contact_repo {
-            let sender_ip_str = sender_ip.to_string();
-            
-            // Query by IP address (exact match on peer_ip string)
-            // This is safer than converting to peer_id
-            let existing_contacts = repo
-                .find_all(Some(contacts::ContactFilters {
-                    search: Some(sender_ip_str.clone()),
-                }))
-                .await
-                .map_err(|e| NeoLanError::Storage(format!("Failed to check contacts: {}", e)))?;
-            
-            // Only add if sender is not already in contacts
-            existing_contacts.is_empty()
-        } else {
-            false // If no repo, don't add
-        };
+        let sender_ip_str = sender_ip.to_string();
+        let mut should_add_contact = false;
+
+        // Check existing contacts using contact_repo (with runtime for async)
+        if let Some(ref contact_repo) = self.contact_repo {
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
+
+            let existing_contacts = rt.block_on(async {
+                contact_repo
+                    .find_all(Some(crate::storage::contact_repo::ContactFilters {
+                        search: Some(sender_ip_str.clone()),
+                        is_online: None,
+                        is_favorite: None,
+                        department: None,
+                        group_id: None,
+                    }))
+                    .await
+            })?;
+
+            should_add_contact = existing_contacts.is_empty();
+            tracing::debug!(
+                "📋 [AUTO-ADD] Checked contacts for {}: exists={}",
+                sender_ip,
+                !should_add_contact
+            );
+        }
 
         // Store to database
         if let Some(ref repo) = self.message_repo {
@@ -526,41 +545,37 @@ impl MessageHandler {
 
             // Auto-add sender to contacts if not already exists
             if should_add_contact {
-                if let Some(peer_info) = peer_info_opt {
+                if let Some(ref contact_repo) = self.contact_repo {
                     tracing::info!(
                         "📝 [AUTO-ADD] Adding sender to contacts: {}@{} (not in database)",
                         sender_ip,
                         proto_msg.sender_name
                     );
 
-                    // Create new contact
-                    // Note: peer_id is not set because we don't have the peer's database ID
-                    // We'll link via IP address (peer_ip column added in migration)
-                    let new_contact = contacts::CreateContact {
+                    // Create new contact using the repository
+                    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                        NeoLanError::Other(format!("Failed to create runtime: {}", e))
+                    })?;
+
+                    let new_contact = crate::storage::contact_repo::CreateContact {
                         peer_id: None,
                         name: proto_msg.sender_name.clone(),
-                        nickname: peer_info.hostname.clone(), // Use hostname as initial nickname
-                        avatar: peer_info.avatar.clone(),
-                        is_online: peer_info.is_online(),
+                        nickname: None, // Don't have hostname from peer manager
+                        avatar: None,
+                        phone: None,
+                        email: None,
+                        department: None,
+                        position: None,
+                        notes: None,
+                        pinyin: None,
                     };
 
-                    // Insert contact
-                    let contact_model = contacts::Model {
-                        name: new_contact.name.clone(),
-                        nickname: new_contact.nickname.clone(),
-                        avatar: new_contact.avatar.clone(),
-                        is_favorite: false,
-                        // peer_id will be None, will link via peer_ip
-                        // is_online, pinyin, last_seen, created_at, updated_at will be set by defaults
-                        ..Default::default()
-                    };
-
-                    let rt = tokio::runtime::Runtime::new()
-                        .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
-                    let contact = rt.block_on(async {
-                        let db = self.contact_repo.as_ref().unwrap();
-                        contacts::Entity::insert(contact_model).into_active_model().exec(&db).await
-                    }).await.map_err(|e| NeoLanError::Storage(format!("Failed to insert contact: {}", e)))?;
+                    rt.block_on(async {
+                        let _ = contact_repo.create(new_contact).await.map_err(|e| {
+                            NeoLanError::Storage(format!("Failed to insert contact: {}", e))
+                        })?;
+                        Ok::<(), NeoLanError>(())
+                    })?;
 
                     tracing::info!(
                         "✅ [AUTO-ADD] Contact added to database: {} (peer_ip: {})",
@@ -568,14 +583,16 @@ impl MessageHandler {
                         sender_ip
                     );
                 } else {
-                    tracing::debug!(
-                        "📋 [AUTO-ADD] Sender {} already in contacts (peer_ip: {}), skipping contact creation",
-                        proto_msg.sender_name,
-                        sender_ip,
+                    tracing::warn!(
+                        "⚠️ [AUTO-ADD] Contact repository not available, skipping contact creation"
                     );
                 }
             } else {
-                tracing::warn!("⚠️ [AUTO-ADD] Contact repository not available, skipping contact creation");
+                tracing::debug!(
+                    "📋 [AUTO-ADD] Sender {} already in contacts (peer_ip: {}), skipping contact creation",
+                    proto_msg.sender_name,
+                    sender_ip,
+                );
             }
         } else {
             tracing::warn!("⚠️ [AUTO-ADD] Message repository not available - contact not created");
@@ -592,7 +609,11 @@ impl MessageHandler {
             let ack_msg = Message {
                 id: uuid::Uuid::new_v4(),
                 packet_id: self.next_packet_id().to_string(), // Send back original packet ID
-                sender: PeerInfo::new(sender_ip, self.config.udp_port, Some(self.config.username.clone())),
+                sender: PeerInfo::new(
+                    sender_ip,
+                    self.config.udp_port,
+                    Some(self.config.username.clone()),
+                ),
                 receiver: PeerInfo::new(sender_ip, self.config.udp_port, None),
                 msg_type: MessageType::RecvAck, // This will map to IPMSG_RECVMSG
                 content: proto_msg.packet_id.to_string(), // Send back original packet ID
@@ -608,89 +629,8 @@ impl MessageHandler {
             let target_addr = SocketAddr::new(sender_ip, self.config.udp_port);
             self.udp.send_to(&bytes, target_addr)?;
 
-            tracing::debug!("📤 [handle_text_message] IPMSG_RECVMSG acknowledgment sent successfully");
-        } else {
-            tracing::debug!("ℹ️ [handle_text_message] No SENDCHECKOPT flag (msg_type=0x{:08x}) - skipping acknowledgment",
-                proto_msg.msg_type);
-        }
-
-        Ok(())
-    }
-
-        // Emit Tauri event for real-time frontend update
-        if let Some(ref app_state) = self.app_state {
-            let now = Utc::now();
-            let event = TauriEvent::MessageReceived {
-                id: 0, // 0 for real-time messages not yet saved to database
-                msg_id: proto_msg.packet_id.to_string(),
-                sender_ip: sender_ip.to_string(),
-                sender_name: proto_msg.sender_name.clone(),
-                receiver_ip: local_ip.to_string(),
-                content: proto_msg.content.clone(),
-                msg_type: proto_msg.msg_type as i32,
-                is_encrypted: msg_type::has_opt(proto_msg.msg_type, msg_type::IPMSG_ENCRYPTOPT),
-                is_offline: false,
-                sent_at: now.timestamp_millis(),
-                received_at: Some(now.timestamp_millis()),
-                created_at: now.timestamp_millis(),
-            };
-            app_state.emit_tauri_event(event);
-            tracing::info!(
-                "✅ Emitted message-received event to frontend: msg_id={}, from={}, content={}",
-                proto_msg.packet_id,
-                proto_msg.sender_name,
-                proto_msg.content.chars().take(50).collect::<String>()
-            );
-        } else {
-            tracing::warn!("⚠️ App state not available - cannot emit message-received event");
-        }
-
-        // Send IPMSG_RECVMSG acknowledgment if message has SENDCHECKOPT flag
-        // This tells the sender that we received their message
-        if msg_type::has_opt(proto_msg.msg_type, msg_type::IPMSG_SENDCHECKOPT) {
-            tracing::info!("📤 [handle_text_message] Sending IPMSG_RECVMSG acknowledgment to {}: original_msg_id={}, ack_msg_id={}",
-                sender_ip, proto_msg.packet_id, self.next_packet_id());
-
-            // Create acknowledgment message
-            let ack_msg = Message {
-                id: uuid::Uuid::new_v4(),
-                packet_id: self.next_packet_id().to_string(),
-                sender: PeerInfo::new(
-                    self.config.bind_ip.parse().map_err(|_| {
-                        NeoLanError::Config(format!("Invalid bind IP: {}", self.config.bind_ip))
-                    })?,
-                    self.config.udp_port,
-                    Some(self.config.username.clone()),
-                ),
-                receiver: PeerInfo::new(sender_ip, self.config.udp_port, None),
-                msg_type: MessageType::RecvAck, // This will map to IPMSG_RECVMSG
-                content: proto_msg.packet_id.to_string(), // Send back the original packet ID
-                timestamp: chrono::Utc::now(),
-            };
-
-            // Convert to protocol message
-            let proto_ack = ack_msg.to_protocol(&self.config.username, &self.config.hostname);
-
             tracing::debug!(
-                "📤 [handle_text_message] ACK protocol msg_type=0x{:08x}, packet_id={}",
-                proto_ack.msg_type,
-                proto_ack.packet_id
-            );
-
-            // Serialize and send
-            let bytes = serialize_message(&proto_ack)?;
-            let target_addr = SocketAddr::new(sender_ip, self.config.udp_port);
-
-            tracing::debug!(
-                "📤 [handle_text_message] Sending ACK to {}, bytes_len={}",
-                target_addr,
-                bytes.len()
-            );
-
-            self.udp.send_to(&bytes, target_addr)?;
-
-            tracing::debug!(
-                "✅ [handle_text_message] IPMSG_RECVMSG acknowledgment sent successfully"
+                "📤 [handle_text_message] IPMSG_RECVMSG acknowledgment sent successfully"
             );
         } else {
             tracing::debug!("ℹ️ [handle_text_message] No SENDCHECKOPT flag (msg_type=0x{:08x}) - skipping acknowledgment",
