@@ -23,7 +23,7 @@ use std::thread;
 use std::time::Duration;
 
 // 引入 NeoLan 协议模块
-use feiqiu::network::protocol::{self, ProtocolMessage, msg_type};
+use feiqiu::network::protocol::{self, msg_type, ProtocolMessage};
 use feiqiu::utils;
 
 /// 飞秋用户信息
@@ -76,7 +76,9 @@ fn create_ipmsg_message(
 }
 
 /// 解析 IPMsg 协议消息（使用 protocol.rs 中的解析函数）
-fn parse_ipmsg_message(data: &[u8]) -> Result<(u32, String, String, String), Box<dyn std::error::Error>> {
+fn parse_ipmsg_message(
+    data: &[u8],
+) -> Result<(u32, String, String, String), Box<dyn std::error::Error>> {
     let msg = protocol::parse_message(data)?;
     let mode = msg_type::get_mode(msg.msg_type) as u32;
     Ok((mode, msg.sender_name, msg.sender_host, msg.content))
@@ -99,8 +101,8 @@ impl FeiqDiscovery {
 
         // 获取本地用户名和主机名
         let local_username = whoami::username();
-        let local_hostname = whoami::fallible::hostname()
-            .unwrap_or_else(|_| "localhost".to_string());
+        let local_hostname =
+            whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string());
 
         // 获取本机 IP 地址
         let local_ip = socket.local_addr()?.ip();
@@ -109,13 +111,22 @@ impl FeiqDiscovery {
         println!("📍 本机: {}@{}", local_username, local_hostname);
         println!("🌐 本机 IP: {}", local_ip);
         println!("🔌 绑定端口: {}", msg_type::IPMSG_DEFAULT_PORT);
-        println!("📡 广播地址: {}", format!("255.255.255.255:{}", msg_type::IPMSG_DEFAULT_PORT));
+        println!(
+            "📡 广播地址: {}",
+            format!("255.255.255.255:{}", msg_type::IPMSG_DEFAULT_PORT)
+        );
         println!();
 
         // 测试广播发送
         println!("💡 提示：如果看不到其他用户，请检查：");
-        println!("   1. 飞秋是否正在运行（端口 {}）", msg_type::IPMSG_DEFAULT_PORT);
-        println!("   2. 防火墙是否允许 UDP {} 端口", msg_type::IPMSG_DEFAULT_PORT);
+        println!(
+            "   1. 飞秋是否正在运行（端口 {}）",
+            msg_type::IPMSG_DEFAULT_PORT
+        );
+        println!(
+            "   2. 防火墙是否允许 UDP {} 端口",
+            msg_type::IPMSG_DEFAULT_PORT
+        );
         println!("   3. 是否在同一局域网内");
         println!();
 
@@ -135,10 +146,11 @@ impl FeiqDiscovery {
             &self.local_username,
             &self.local_hostname,
             msg_type::IPMSG_BR_ENTRY,
-            "",  // extra 字段为空
+            "", // extra 字段为空
         );
 
-        let addr = format!("255.255.255.255:{}", msg_type::IPMSG_DEFAULT_PORT).parse::<SocketAddr>()?;
+        let addr =
+            format!("255.255.255.255:{}", msg_type::IPMSG_DEFAULT_PORT).parse::<SocketAddr>()?;
         self.socket.send_to(&message, addr)?;
 
         println!("📢 已发送上线广播 (packet_id: {})", self.packet_id);
@@ -148,7 +160,11 @@ impl FeiqDiscovery {
     }
 
     /// 处理接收到的消息
-    fn handle_message(&mut self, data: &[u8], sender: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+    fn handle_message(
+        &mut self,
+        data: &[u8],
+        sender: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (command, username, hostname, extra) = parse_ipmsg_message(data)?;
         let ip = sender.ip();
 
@@ -210,7 +226,11 @@ impl FeiqDiscovery {
             }
             _ => {
                 // 其他消息类型
-                println!("📩 收到消息 (类型: 0x{:08X}) 来自: {}", command, sender.ip());
+                println!(
+                    "📩 收到消息 (类型: 0x{:08X}) 来自: {}",
+                    command,
+                    sender.ip()
+                );
             }
         }
 
@@ -243,7 +263,10 @@ impl FeiqDiscovery {
         }
 
         println!("╔═══════════════════════════════════════════════════════════════╗");
-        println!("║                    在线用户列表 ({:02} 人)                      ║", users.len());
+        println!(
+            "║                    在线用户列表 ({:02} 人)                      ║",
+            users.len()
+        );
         println!("╠═══════════════════════════════════════════════════════════════╣");
         println!("║ {:<20} │ {:<15} │ {:<8} ║", "用户名", "IP 地址", "时长");
         println!("╠═══════════════════════════════════════════════════════════════╣");
@@ -258,7 +281,8 @@ impl FeiqDiscovery {
                 format!("{}时", duration / 3600)
             };
 
-            println!("║ {:<20} │ {:<15} │ {:<8} ║",
+            println!(
+                "║ {:<20} │ {:<15} │ {:<8} ║",
                 user.username,
                 user.ip.to_string(),
                 duration_str
@@ -286,7 +310,8 @@ impl FeiqDiscovery {
             }
 
             // 接收消息（非阻塞）
-            self.socket.set_read_timeout(Some(Duration::from_millis(100)))?;
+            self.socket
+                .set_read_timeout(Some(Duration::from_millis(100)))?;
 
             match self.socket.recv_from(&mut buffer) {
                 Ok((len, sender)) => {
@@ -294,8 +319,10 @@ impl FeiqDiscovery {
                         eprintln!("处理消息错误: {:?}", e);
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     // 超时是正常的（Windows 返回 TimedOut，Unix 返回 WouldBlock）
                     // 继续循环
                 }
@@ -308,7 +335,7 @@ impl FeiqDiscovery {
 }
 
 fn main() {
-        // Initialize logging system first
+    // Initialize logging system first
     utils::logger::init_logger();
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║              NeoLan - 飞秋（FeiQ）交互示例                    ║");
@@ -357,7 +384,8 @@ fn main() {
         println!();
         println!("🛑 收到退出信号...");
         r.store(false, std::sync::atomic::Ordering::SeqCst);
-    }).expect("无法设置 Ctrl+C 处理器");
+    })
+    .expect("无法设置 Ctrl+C 处理器");
 
     // 在后台线程运行发现器
     let socket_clone = discovery.socket.try_clone().unwrap();
@@ -386,7 +414,9 @@ fn main() {
                     "",
                 );
 
-                if let Ok(addr) = format!("255.255.255.255:{}", msg_type::IPMSG_DEFAULT_PORT).parse::<SocketAddr>() {
+                if let Ok(addr) = format!("255.255.255.255:{}", msg_type::IPMSG_DEFAULT_PORT)
+                    .parse::<SocketAddr>()
+                {
                     let _ = socket_clone.send_to(&message, addr);
                 }
 
@@ -394,32 +424,36 @@ fn main() {
             }
 
             // 接收消息（非阻塞）
-            socket_clone.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+            socket_clone
+                .set_read_timeout(Some(Duration::from_millis(100)))
+                .unwrap();
 
             match socket_clone.recv_from(&mut buffer) {
                 Ok((len, sender)) => {
                     // 调试：显示接收到的原始数据
                     if let Ok(msg_str) = std::str::from_utf8(&buffer[..len]) {
-                        if msg_str.len() < 200 {  // 只显示较短的消息
+                        if msg_str.len() < 200 {
+                            // 只显示较短的消息
                             println!("📨 [DEBUG] 收到数据: {} 来自: {}", msg_str, sender.ip());
                         }
                     }
 
-                    if let Ok((command, username, hostname, extra)) = parse_ipmsg_message(&buffer[..len]) {
+                    if let Ok((command, username, hostname, extra)) =
+                        parse_ipmsg_message(&buffer[..len])
+                    {
                         let ip = sender.ip();
-                        
+
                         match command {
                             msg_type::IPMSG_GETINFO => {
                                 // 收到获取用户信息请求，回复 SENDINFO
                                 println!("ℹ️  收到用户信息请求: {} ({})", username, ip);
-                                
+
                                 // 构造用户信息回复（格式：用户名\0主机名\0其他信息）
                                 let user_info = format!(
                                     "{}\0{}\0NeoLan v1.0 - Rust IPMsg Client",
-                                    username_clone,
-                                    hostname_clone
+                                    username_clone, hostname_clone
                                 );
-                                
+
                                 let info_msg = create_ipmsg_message(
                                     1,
                                     &username_clone,
@@ -433,7 +467,12 @@ fn main() {
                             msg_type::IPMSG_BR_ENTRY => {
                                 let mut users = users_arc_clone.lock().unwrap();
                                 if !users.contains_key(&ip) {
-                                    let user = FeiqUser::new(ip, sender.port(), username.clone(), hostname.clone());
+                                    let user = FeiqUser::new(
+                                        ip,
+                                        sender.port(),
+                                        username.clone(),
+                                        hostname.clone(),
+                                    );
                                     println!("👤 发现用户: {} ({})", user.display_name(), ip);
                                     println!("   主机名: {}", hostname);
                                     println!("   端口: {}", sender.port());
@@ -457,7 +496,12 @@ fn main() {
                             msg_type::IPMSG_ANSENTRY => {
                                 let mut users = users_arc_clone.lock().unwrap();
                                 if !users.contains_key(&ip) {
-                                    let user = FeiqUser::new(ip, sender.port(), username.clone(), hostname);
+                                    let user = FeiqUser::new(
+                                        ip,
+                                        sender.port(),
+                                        username.clone(),
+                                        hostname,
+                                    );
                                     println!("✅ {} 已在线 ({})", username, ip);
                                     users.insert(ip, user);
                                 }
@@ -494,15 +538,21 @@ fn main() {
                                 }
                             }
                             _ => {
-                                println!("📩 [DEBUG] 收到其他消息类型: 0x{:08X} 来自: {}", command, sender.ip());
+                                println!(
+                                    "📩 [DEBUG] 收到其他消息类型: 0x{:08X} 来自: {}",
+                                    command,
+                                    sender.ip()
+                                );
                             }
                         }
                     } else {
                         println!("⚠️  [DEBUG] 解析失败，原始数据: {:?}", &buffer[..len]);
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     // 超时是正常的
                 }
                 Err(e) => {
@@ -547,11 +597,11 @@ fn main() {
                 println!();
                 print!("请输入目标 IP 地址: ");
                 io::stdout().flush().unwrap();
-                
+
                 let mut ip_input = String::new();
                 io::stdin().read_line(&mut ip_input).unwrap();
                 let ip_input = ip_input.trim();
-                
+
                 if let Ok(target_ip) = ip_input.parse::<IpAddr>() {
                     // 发送 IPMSG_GETINFO 请求
                     let getinfo_msg = create_ipmsg_message(
@@ -561,7 +611,7 @@ fn main() {
                         msg_type::IPMSG_GETINFO,
                         "",
                     );
-                    
+
                     let target_addr = SocketAddr::new(target_ip, msg_type::IPMSG_DEFAULT_PORT);
                     match discovery.socket.send_to(&getinfo_msg, target_addr) {
                         Ok(_) => {
