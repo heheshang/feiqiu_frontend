@@ -44,7 +44,7 @@ pub struct MessageDto {
     pub content: String,
     pub is_encrypted: bool,
     pub is_offline: bool,
-    pub sent_at: i64,        // Unix milliseconds timestamp
+    pub sent_at: i64, // Unix milliseconds timestamp
     pub received_at: Option<i64>,
     pub created_at: i64,
 }
@@ -96,7 +96,11 @@ pub async fn send_message(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<MessageDto> {
-    tracing::info!("send_message called: receiver_ip={}, content_len={}", receiver_ip, content.len());
+    tracing::info!(
+        "send_message called: receiver_ip={}, content_len={}",
+        receiver_ip,
+        content.len()
+    );
 
     // Validate content
     if content.trim().is_empty() {
@@ -178,7 +182,11 @@ pub async fn get_messages(
     let filters = filters.unwrap_or_default();
     let limit = filters.limit.unwrap_or(50);
 
-    tracing::info!("get_messages called: filters={:?}, limit={}", filters, limit);
+    tracing::info!(
+        "get_messages called: filters={:?}, limit={}",
+        filters,
+        limit
+    );
 
     // Validate limit
     if limit == 0 || limit > 1000 {
@@ -188,7 +196,8 @@ pub async fn get_messages(
     }
 
     // Get message repository
-    let repo = state.get_message_repo()
+    let repo = state
+        .get_message_repo()
         .ok_or_else(|| NeoLanError::Storage("Message repository not initialized".to_string()))?;
 
     // Build query based on filters
@@ -197,10 +206,12 @@ pub async fn get_messages(
     // Apply sender IP filter
     if let Some(ref sender_ip) = filters.sender_ip {
         // Validate IP format
-        let _ip: IpAddr = sender_ip.parse()
+        let _ip: IpAddr = sender_ip
+            .parse()
             .map_err(|e| NeoLanError::Validation(format!("Invalid sender IP address: {}", e)))?;
 
-        models = models.into_iter()
+        models = models
+            .into_iter()
             .filter(|m| m.sender_ip == *sender_ip)
             .collect();
     }
@@ -208,23 +219,27 @@ pub async fn get_messages(
     // Apply receiver IP filter
     if let Some(ref receiver_ip) = filters.receiver_ip {
         // Validate IP format
-        let _ip: IpAddr = receiver_ip.parse()
+        let _ip: IpAddr = receiver_ip
+            .parse()
             .map_err(|e| NeoLanError::Validation(format!("Invalid receiver IP address: {}", e)))?;
 
-        models = models.into_iter()
+        models = models
+            .into_iter()
             .filter(|m| m.receiver_ip == *receiver_ip)
             .collect();
     }
 
     // Apply timestamp filters
     if let Some(after) = filters.after {
-        models = models.into_iter()
+        models = models
+            .into_iter()
             .filter(|m| m.sent_at.and_utc().timestamp_millis() >= after)
             .collect();
     }
 
     if let Some(before) = filters.before {
-        models = models.into_iter()
+        models = models
+            .into_iter()
             .filter(|m| m.sent_at.and_utc().timestamp_millis() <= before)
             .collect();
     }

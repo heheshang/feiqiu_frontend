@@ -7,8 +7,8 @@
 // Default UDP port: 2425
 
 use crate::{NeoLanError, Result};
-use serde::{Deserialize, Serialize};
 use encoding_rs::GBK;
+use serde::{Deserialize, Serialize};
 
 /// Message type constants (compatible with IPMsg protocol)
 pub mod msg_type {
@@ -33,7 +33,7 @@ pub mod msg_type {
     /// 协议头 / 版本 / 端口
     pub const IPMSG_VERSION: u16 = 0x0001; // 协议版本
     /// IPMsg 标准默认端口 (re-exported from AppConfig for protocol compatibility)
-    pub const IPMSG_DEFAULT_PORT: u16 = 0x0979; // 2425 (standard IPMsg port) 
+    pub const IPMSG_DEFAULT_PORT: u16 = 0x0979; // 2425 (standard IPMsg port)
 
     /// command (mode) — 低 8 位
     pub const IPMSG_NOOPERATION: u32 = 0x00000000; // 0 无操作
@@ -179,7 +179,10 @@ pub fn explain_message_type(msg_type: u32) -> String {
         format!(" | [{}]", flags.join(" | "))
     };
 
-    format!("{} (0x{:08X} = mode: 0x{:02X}{})", mode_name, msg_type, mode, flags_str)
+    format!(
+        "{} (0x{:08X} = mode: 0x{:02X}{})",
+        mode_name, msg_type, mode, flags_str
+    )
 }
 
 /// IPMsg-compatible protocol message
@@ -307,17 +310,23 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
             };
             (
                 PROTOCOL_VERSION,
-                fields[1],           // Packet ID field
-                content,              // Content field (contains username for BR_ENTRY)
-                fields[3].to_string(),  // Hostname field
-                true, // Mark as FeiQ format
+                fields[1],             // Packet ID field
+                content,               // Content field (contains username for BR_ENTRY)
+                fields[3].to_string(), // Hostname field
+                true,                  // Mark as FeiQ format
             )
         } else {
             // Standard IPMsg format
             let v: u8 = fields[0]
                 .parse()
                 .map_err(|_| NeoLanError::Protocol(format!("Invalid version: {}", fields[0])))?;
-            (v, fields[1], fields[2].to_string(), fields[3].to_string(), false)
+            (
+                v,
+                fields[1],
+                fields[2].to_string(),
+                fields[3].to_string(),
+                false,
+            )
         }
     };
 
@@ -340,7 +349,10 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
         // FeiQ: packet_id might not be numeric, use timestamp-based fallback
         use std::time::SystemTime;
         packet_id.parse::<u64>().unwrap_or_else(|_| {
-            tracing::warn!("FeiQ packet_id '{}' is not numeric, using timestamp-based fallback", packet_id);
+            tracing::warn!(
+                "FeiQ packet_id '{}' is not numeric, using timestamp-based fallback",
+                packet_id
+            );
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .map(|d| d.as_secs() as u64)
@@ -373,17 +385,24 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
     // Debug log for FeiQ format detection
     if is_feiq {
         eprintln!("DEBUG: FeiQ format detected");
-        fields.iter()
+        fields
+            .iter()
             .enumerate()
             .for_each(|(i, field)| eprintln!("DEBUG: fields[{}] = '{}'", i, field));
-        eprintln!("DEBUG: sender_name={}, sender_host={} ", sender_name, sender_host);
+        eprintln!(
+            "DEBUG: sender_name={}, sender_host={} ",
+            sender_name, sender_host
+        );
     } else {
         eprintln!("DEBUG: Standard IPMsg format");
         eprintln!("DEBUG: fields[0]={}", fields[0]);
         eprintln!("DEBUG: fields[1]={}", fields[1]);
         eprintln!("DEBUG: fields[2]={}", fields[2]);
         eprintln!("DEBUG: fields[3]={}", fields[3]);
-        eprintln!("DEBUG: sender_name={}, sender_host={}", sender_name, sender_host);
+        eprintln!(
+            "DEBUG: sender_name={}, sender_host={}",
+            sender_name, sender_host
+        );
     }
 
     // Parse message type
@@ -820,7 +839,10 @@ mod tests {
         assert_eq!(msg.sender_name, "陈俞辛");
         assert_eq!(msg.sender_host, "DESKTOP-IOHG15K");
         // 6291459 = 0x600003 = IPMSG_ANSENTRY (0x03) with some options
-        assert_eq!(msg_type::get_mode(msg.msg_type) as u32, msg_type::IPMSG_ANSENTRY);
+        assert_eq!(
+            msg_type::get_mode(msg.msg_type) as u32,
+            msg_type::IPMSG_ANSENTRY
+        );
         // Content should be empty since it was used as sender_name
         assert!(msg.content.is_empty() || msg.content == "陈俞辛");
     }
@@ -828,11 +850,15 @@ mod tests {
     #[test]
     fn test_parse_feiq_with_regular_username() {
         // FeiQ format with ASCII username
-        let data = b"1_lbt4_6#128#C81F663237C8#0#0#0#311c#9:1761386707:cgc:DESKTOP-IOHG15K:6291459:Alice";
+        let data =
+            b"1_lbt4_6#128#C81F663237C8#0#0#0#311c#9:1761386707:cgc:DESKTOP-IOHG15K:6291459:Alice";
 
         eprintln!("DEBUG TEST: Parsing {}", String::from_utf8_lossy(data));
         let msg = parse_message(data).expect("Failed to parse FeiQ message");
-        eprintln!("DEBUG TEST: Parsed sender_name={}, sender_host={}", msg.sender_name, msg.sender_host);
+        eprintln!(
+            "DEBUG TEST: Parsed sender_name={}, sender_host={}",
+            msg.sender_name, msg.sender_host
+        );
 
         // Verify the username is extracted from content field
         assert_eq!(msg.sender_name, "Alice");

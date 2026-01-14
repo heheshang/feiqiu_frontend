@@ -5,15 +5,15 @@
 use crate::config::{app::ConfigRepository, AppConfig};
 use crate::modules::message::MessageHandler;
 use crate::modules::peer::{PeerManager, PeerNode};
+use crate::storage::contact_repo::ContactRepository;
 use crate::storage::database::establish_connection;
 use crate::storage::message_repo::MessageRepository;
 use crate::storage::peer_repo::PeerRepository;
-use crate::storage::contact_repo::ContactRepository;
 use crate::Result;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 /// Tauri event payload - serializable events that can be emitted to frontend
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -21,7 +21,7 @@ pub enum TauriEvent {
     /// Message received from peer
     #[serde(rename = "MessageReceived")]
     MessageReceived {
-        id: i32,  // Database ID (0 for real-time messages not yet saved)
+        id: i32, // Database ID (0 for real-time messages not yet saved)
         #[serde(rename = "msgId")]
         msg_id: String,
         #[serde(rename = "senderIp")]
@@ -237,9 +237,9 @@ impl AppState {
     pub async fn init_database(&self) -> Result<DatabaseConnection> {
         tracing::info!("Initializing database connection...");
 
-        let db = establish_connection()
-            .await
-            .map_err(|e| crate::NeoLanError::Storage(format!("Database connection failed: {}", e)))?;
+        let db = establish_connection().await.map_err(|e| {
+            crate::NeoLanError::Storage(format!("Database connection failed: {}", e))
+        })?;
 
         // Store the database connection
         *self.db.lock().unwrap() = Some(db.clone());
@@ -319,7 +319,10 @@ impl AppState {
             .map(PeerDiscoveredDto::from_peer_node)
             .collect();
 
-        tracing::info!("Emitting PeersDiscovered event with {} peers", peer_dtos.len());
+        tracing::info!(
+            "Emitting PeersDiscovered event with {} peers",
+            peer_dtos.len()
+        );
 
         self.emit_tauri_event(TauriEvent::PeersDiscovered { peers: peer_dtos });
     }
@@ -338,7 +341,9 @@ impl AppState {
         if let Some(manager) = self.get_peer_manager() {
             manager.start()
         } else {
-            Err(crate::NeoLanError::Other("Peer manager not initialized".to_string()))
+            Err(crate::NeoLanError::Other(
+                "Peer manager not initialized".to_string(),
+            ))
         }
     }
 

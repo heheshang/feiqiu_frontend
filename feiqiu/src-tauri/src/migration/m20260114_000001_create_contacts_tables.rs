@@ -12,9 +12,11 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(Contacts::Table).comment("")
+                    .table(Contacts::Table)
+                    .comment("")
                     .if_not_exists()
-                    .col(pk_auto(Contacts::Id)).comment("id")
+                    .col(pk_auto(Contacts::Id))
+                    .comment("id")
                     .col(integer_null(Contacts::PeerId))
                     .col(string(Contacts::Name))
                     .col(string_null(Contacts::Nickname))
@@ -200,11 +202,7 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // 按相反顺序删除表
         manager
-            .drop_table(
-                Table::drop()
-                    .table(ContactGroupMembers::Table)
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(ContactGroupMembers::Table).to_owned())
             .await?;
         manager
             .drop_table(Table::drop().table(ContactGroups::Table).to_owned())

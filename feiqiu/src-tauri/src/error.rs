@@ -68,39 +68,21 @@ impl NeoLanError {
     pub fn with_context<C: Into<String>>(self, context: C) -> Self {
         let context = context.into();
         match self {
-            NeoLanError::Network(e) => {
-                NeoLanError::Storage(format!("{}: {}", context, e))
-            }
-            NeoLanError::Protocol(s) => {
-                NeoLanError::Protocol(format!("{}: {}", context, s))
-            }
-            NeoLanError::Storage(s) => {
-                NeoLanError::Storage(format!("{}: {}", context, s))
-            }
-            NeoLanError::Crypto(s) => {
-                NeoLanError::Crypto(format!("{}: {}", context, s))
-            }
-            NeoLanError::Config(s) => {
-                NeoLanError::Config(format!("{}: {}", context, s))
-            }
-            NeoLanError::Json(e) => {
-                NeoLanError::Storage(format!("{}: {}", context, e))
-            }
+            NeoLanError::Network(e) => NeoLanError::Storage(format!("{}: {}", context, e)),
+            NeoLanError::Protocol(s) => NeoLanError::Protocol(format!("{}: {}", context, s)),
+            NeoLanError::Storage(s) => NeoLanError::Storage(format!("{}: {}", context, s)),
+            NeoLanError::Crypto(s) => NeoLanError::Crypto(format!("{}: {}", context, s)),
+            NeoLanError::Config(s) => NeoLanError::Config(format!("{}: {}", context, s)),
+            NeoLanError::Json(e) => NeoLanError::Storage(format!("{}: {}", context, e)),
             NeoLanError::PeerNotFound(s) => {
                 NeoLanError::PeerNotFound(format!("{}: {}", context, s))
             }
             NeoLanError::FileTransfer(s) => {
                 NeoLanError::FileTransfer(format!("{}: {}", context, s))
             }
-            NeoLanError::Timeout(s) => {
-                NeoLanError::Timeout(format!("{}: {}", context, s))
-            }
-            NeoLanError::Validation(s) => {
-                NeoLanError::Validation(format!("{}: {}", context, s))
-            }
-            NeoLanError::Other(s) => {
-                NeoLanError::Other(format!("{}: {}", context, s))
-            }
+            NeoLanError::Timeout(s) => NeoLanError::Timeout(format!("{}: {}", context, s)),
+            NeoLanError::Validation(s) => NeoLanError::Validation(format!("{}: {}", context, s)),
+            NeoLanError::Other(s) => NeoLanError::Other(format!("{}: {}", context, s)),
         }
     }
 
@@ -154,7 +136,8 @@ mod tests {
 
     #[test]
     fn test_network_error_from_io() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
         let err: NeoLanError = io_err.into();
         assert!(matches!(err, NeoLanError::Network(_)));
     }
@@ -202,7 +185,8 @@ mod tests {
 
     #[test]
     fn test_with_context_network() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
         let err: NeoLanError = io_err.into();
         let enriched = err.with_context("connecting to peer 192.168.1.100");
         // Network errors get converted to Storage with context
@@ -212,13 +196,19 @@ mod tests {
     #[test]
     fn test_storage_context() {
         let err = NeoLanError::storage_context("database connection failed");
-        assert_eq!(format!("{}", err), "Storage error: database connection failed");
+        assert_eq!(
+            format!("{}", err),
+            "Storage error: database connection failed"
+        );
     }
 
     #[test]
     fn test_network_context() {
         let err = NeoLanError::network_context("UDP send failed");
-        assert_eq!(format!("{}", err), "Other error: Network error: UDP send failed");
+        assert_eq!(
+            format!("{}", err),
+            "Other error: Network error: UDP send failed"
+        );
     }
 
     #[test]

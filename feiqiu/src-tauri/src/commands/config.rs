@@ -103,14 +103,19 @@ impl ConfigDto {
     #[allow(dead_code)]
     pub fn from_map(map: &HashMap<String, String>) -> Self {
         Self {
-            username: map.get("username").cloned().unwrap_or_else(whoami::username),
-            hostname: map
-                .get("hostname")
+            username: map
+                .get("username")
                 .cloned()
-                .unwrap_or_else(|| whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())),
+                .unwrap_or_else(whoami::username),
+            hostname: map.get("hostname").cloned().unwrap_or_else(|| {
+                whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+            }),
             avatar: map.get("avatar").cloned(),
             status: map.get("status").cloned(),
-            bind_ip: map.get("bind_ip").cloned().unwrap_or_else(|| "0.0.0.0".to_string()),
+            bind_ip: map
+                .get("bind_ip")
+                .cloned()
+                .unwrap_or_else(|| "0.0.0.0".to_string()),
             udp_port: map
                 .get("udp_port")
                 .and_then(|s| s.parse().ok())
@@ -144,15 +149,12 @@ impl ConfigDto {
                 .get("auto_accept_files")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(false),
-            file_save_dir: map
-                .get("file_save_dir")
-                .cloned()
-                .unwrap_or_else(|| {
-                    dirs::download_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                        .to_string_lossy()
-                        .to_string()
-                }),
+            file_save_dir: map.get("file_save_dir").cloned().unwrap_or_else(|| {
+                dirs::download_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .to_string_lossy()
+                    .to_string()
+            }),
             log_level: map
                 .get("log_level")
                 .cloned()
@@ -167,9 +169,15 @@ impl ConfigDto {
         map.insert("hostname".to_string(), self.hostname.clone());
         map.insert("bind_ip".to_string(), self.bind_ip.clone());
         map.insert("udp_port".to_string(), self.udp_port.to_string());
-        map.insert("tcp_port_start".to_string(), self.tcp_port_start.to_string());
+        map.insert(
+            "tcp_port_start".to_string(),
+            self.tcp_port_start.to_string(),
+        );
         map.insert("tcp_port_end".to_string(), self.tcp_port_end.to_string());
-        map.insert("heartbeat_interval".to_string(), self.heartbeat_interval.to_string());
+        map.insert(
+            "heartbeat_interval".to_string(),
+            self.heartbeat_interval.to_string(),
+        );
         map.insert("peer_timeout".to_string(), self.peer_timeout.to_string());
         map.insert(
             "encryption_enabled".to_string(),
@@ -238,10 +246,7 @@ impl ConfigDto {
 
         // Validate file save directory exists
         if !std::path::Path::new(&self.file_save_dir).exists() {
-            tracing::warn!(
-                "File save directory does not exist: {}",
-                self.file_save_dir
-            );
+            tracing::warn!("File save directory does not exist: {}", self.file_save_dir);
             // Note: We don't error here, as the directory might be created later
         }
 
@@ -253,8 +258,7 @@ impl Default for ConfigDto {
     fn default() -> Self {
         Self {
             username: whoami::username(),
-            hostname: whoami::fallible::hostname()
-                .unwrap_or_else(|_| "localhost".to_string()),
+            hostname: whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string()),
             avatar: None,
             status: None,
             bind_ip: "0.0.0.0".to_string(),
@@ -368,62 +372,56 @@ pub fn get_config_value(state: tauri::State<AppState>, key: String) -> Result<Op
 /// ```
 #[tauri::command]
 pub fn set_config_value(state: tauri::State<AppState>, key: String, value: String) -> Result<()> {
-    tracing::info!("set_config_value called with key: {}, value: {}", key, value);
+    tracing::info!(
+        "set_config_value called with key: {}, value: {}",
+        key,
+        value
+    );
 
     // Validate key and value
     match key.as_str() {
         "udp_port" => {
-            let port: u16 = value.parse().map_err(|_| {
-                NeoLanError::Validation(format!("Invalid port value: {}", value))
-            })?;
+            let port: u16 = value
+                .parse()
+                .map_err(|_| NeoLanError::Validation(format!("Invalid port value: {}", value)))?;
             if port < 1024 {
-                return Err(NeoLanError::Validation(
-                    "port must be >= 1024".to_string(),
-                ));
+                return Err(NeoLanError::Validation("port must be >= 1024".to_string()));
             }
             state.update_config(|c| c.udp_port = port)?;
         }
         "tcp_port_start" => {
-            let port: u16 = value.parse().map_err(|_| {
-                NeoLanError::Validation(format!("Invalid port value: {}", value))
-            })?;
+            let port: u16 = value
+                .parse()
+                .map_err(|_| NeoLanError::Validation(format!("Invalid port value: {}", value)))?;
             if port < 1024 {
-                return Err(NeoLanError::Validation(
-                    "port must be >= 1024".to_string(),
-                ));
+                return Err(NeoLanError::Validation("port must be >= 1024".to_string()));
             }
             state.update_config(|c| c.tcp_port_start = port)?;
         }
         "tcp_port_end" => {
-            let port: u16 = value.parse().map_err(|_| {
-                NeoLanError::Validation(format!("Invalid port value: {}", value))
-            })?;
+            let port: u16 = value
+                .parse()
+                .map_err(|_| NeoLanError::Validation(format!("Invalid port value: {}", value)))?;
             if port < 1024 {
-                return Err(NeoLanError::Validation(
-                    "port must be >= 1024".to_string(),
-                ));
+                return Err(NeoLanError::Validation("port must be >= 1024".to_string()));
             }
             state.update_config(|c| c.tcp_port_end = port)?;
         }
         "heartbeat_interval" => {
-            let val: u64 = value.parse().map_err(|_| {
-                NeoLanError::Validation(format!("Invalid number value: {}", value))
-            })?;
+            let val: u64 = value
+                .parse()
+                .map_err(|_| NeoLanError::Validation(format!("Invalid number value: {}", value)))?;
             if val == 0 {
-                return Err(NeoLanError::Validation(
-                    "value must be > 0".to_string(),
-                ));
+                return Err(NeoLanError::Validation("value must be > 0".to_string()));
             }
             state.update_config(|c| c.heartbeat_interval = val)?;
         }
         "peer_timeout" => {
-            let val: u64 = value.parse().map_err(|_| {
-                NeoLanError::Validation(format!("Invalid number value: {}", value))
-            })?;
+            let val: u64 = value
+                .parse()
+                .map_err(|_| NeoLanError::Validation(format!("Invalid number value: {}", value)))?;
             if val == 0 {
-                return Err(NeoLanError::Validation(
-                    "value must be > 0".to_string(),
-                ));
+                return Err(NeoLanError::Validation("value must be > 0".to_string()));
             }
             state.update_config(|c| c.peer_timeout = val)?;
         }
@@ -445,19 +443,17 @@ pub fn set_config_value(state: tauri::State<AppState>, key: String, value: Strin
             let enabled = value == "true";
             state.update_config(|c| c.auto_accept_files = enabled)?;
         }
-        "log_level" => {
-            match value.as_str() {
-                "trace" | "debug" | "info" | "warn" | "error" => {
-                    state.update_config(|c| c.log_level = value)?;
-                }
-                _ => {
-                    return Err(NeoLanError::Validation(format!(
-                        "Invalid log_level: {}",
-                        value
-                    )))
-                }
+        "log_level" => match value.as_str() {
+            "trace" | "debug" | "info" | "warn" | "error" => {
+                state.update_config(|c| c.log_level = value)?;
             }
-        }
+            _ => {
+                return Err(NeoLanError::Validation(format!(
+                    "Invalid log_level: {}",
+                    value
+                )))
+            }
+        },
         "username" => {
             state.update_config(|c| c.username = value)?;
         }

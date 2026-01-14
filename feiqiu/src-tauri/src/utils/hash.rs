@@ -1,9 +1,9 @@
 // File hashing utilities for MD5 calculation and file size
+use crate::{NeoLanError, Result};
+use md5::{Digest, Md5};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
-use crate::{NeoLanError, Result};
-use md5::{Md5, Digest};
 
 /// Calculate MD5 hash of a file
 ///
@@ -94,7 +94,11 @@ pub fn calculate_file_md5(path: &Path) -> Result<String> {
 /// ```
 pub fn get_file_size(path: &Path) -> Result<u64> {
     let metadata = std::fs::metadata(path).map_err(|e| {
-        NeoLanError::FileTransfer(format!("Failed to get metadata for {}: {}", path.display(), e))
+        NeoLanError::FileTransfer(format!(
+            "Failed to get metadata for {}: {}",
+            path.display(),
+            e
+        ))
     })?;
 
     Ok(metadata.len())
@@ -103,8 +107,8 @@ pub fn get_file_size(path: &Path) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use std::env;
+    use std::io::Write;
 
     #[test]
     fn test_calculate_file_md5_empty_file() {

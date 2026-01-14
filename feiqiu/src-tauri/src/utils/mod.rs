@@ -1,3 +1,3 @@
 // Utility functions
-pub mod logger;
 pub mod hash;
+pub mod logger;

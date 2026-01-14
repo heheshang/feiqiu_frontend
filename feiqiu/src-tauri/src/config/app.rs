@@ -106,32 +106,36 @@ impl AppConfig {
     pub fn validate(&self) -> Result<()> {
         // 验证 UDP 端口范围
         if self.udp_port == 0 {
-            return Err(NeoLanError::Validation("UDP port cannot be zero".to_string()));
+            return Err(NeoLanError::Validation(
+                "UDP port cannot be zero".to_string(),
+            ));
         }
 
         // 验证 TCP 端口范围
         if self.tcp_port_start >= self.tcp_port_end {
             return Err(NeoLanError::Validation(
-                "TCP port start must be less than port end".to_string()
+                "TCP port start must be less than port end".to_string(),
             ));
         }
 
         if self.tcp_port_start < 1024 {
             return Err(NeoLanError::Validation(
-                "TCP port start must be >= 1024 (privileged ports are reserved)".to_string()
+                "TCP port start must be >= 1024 (privileged ports are reserved)".to_string(),
             ));
         }
 
         // 验证超时设置
         if self.peer_timeout <= self.heartbeat_interval {
             return Err(NeoLanError::Validation(
-                "Peer timeout must be greater than heartbeat interval".to_string()
+                "Peer timeout must be greater than heartbeat interval".to_string(),
             ));
         }
 
         // 验证绑定 IP
         if self.bind_ip.is_empty() {
-            return Err(NeoLanError::Validation("Bind IP cannot be empty".to_string()));
+            return Err(NeoLanError::Validation(
+                "Bind IP cannot be empty".to_string(),
+            ));
         }
 
         Ok(())
@@ -194,9 +198,8 @@ impl ConfigRepository {
         match setting {
             Some(s) => {
                 // 从 JSON 反序列化配置
-                serde_json::from_str(&s.value).map_err(|e| {
-                    NeoLanError::Config(format!("Failed to parse config JSON: {}", e))
-                })
+                serde_json::from_str(&s.value)
+                    .map_err(|e| NeoLanError::Config(format!("Failed to parse config JSON: {}", e)))
             }
             None => Ok(AppConfig::default()),
         }
@@ -204,9 +207,8 @@ impl ConfigRepository {
 
     /// 保存应用配置
     pub async fn save_app_config(&self, config: &AppConfig) -> Result<()> {
-        let json_value = serde_json::to_string(config).map_err(|e| {
-            NeoLanError::Config(format!("Failed to serialize config: {}", e))
-        })?;
+        let json_value = serde_json::to_string(config)
+            .map_err(|e| NeoLanError::Config(format!("Failed to serialize config: {}", e)))?;
 
         // 检查是否已存在配置
         let existing = settings::Entity::find()
@@ -317,7 +319,10 @@ impl ConfigRepository {
             .map_err(|e| NeoLanError::Storage(format!("Failed to delete value: {}", e)))?;
 
         if result.rows_affected == 0 {
-            return Err(NeoLanError::Config(format!("Config key not found: {}", key)));
+            return Err(NeoLanError::Config(format!(
+                "Config key not found: {}",
+                key
+            )));
         }
 
         Ok(())
@@ -348,9 +353,15 @@ mod tests {
         assert_eq!(config.udp_port, AppConfig::DEFAULT_UDP_PORT);
         assert_eq!(config.tcp_port_start, AppConfig::DEFAULT_TCP_PORT_START);
         assert_eq!(config.tcp_port_end, AppConfig::DEFAULT_TCP_PORT_END);
-        assert_eq!(config.heartbeat_interval, AppConfig::DEFAULT_HEARTBEAT_INTERVAL);
+        assert_eq!(
+            config.heartbeat_interval,
+            AppConfig::DEFAULT_HEARTBEAT_INTERVAL
+        );
         assert_eq!(config.peer_timeout, AppConfig::DEFAULT_PEER_TIMEOUT);
-        assert_eq!(config.offline_message_retention_days, AppConfig::DEFAULT_OFFLINE_MESSAGE_RETENTION_DAYS);
+        assert_eq!(
+            config.offline_message_retention_days,
+            AppConfig::DEFAULT_OFFLINE_MESSAGE_RETENTION_DAYS
+        );
         assert!(!config.encryption_enabled);
         assert!(!config.auto_accept_files);
         assert_eq!(config.log_level, AppConfig::DEFAULT_LOG_LEVEL);

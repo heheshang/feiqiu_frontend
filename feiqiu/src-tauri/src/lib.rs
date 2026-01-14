@@ -1,45 +1,47 @@
 // Module declarations
 mod commands;
+mod config;
+mod error;
 mod migration;
 mod modules;
 pub mod network;
-mod storage;
-mod config;
 pub mod state;
+mod storage;
 pub mod utils;
-mod error;
 
 // Import Emitter trait for event emission
-use tauri::Emitter;
+use crate::config::app::{AppConfig, ConfigRepository};
 use crate::migration::{Migrator, MigratorTrait};
-use crate::network::UdpTransport;
-use crate::modules::peer::{PeerManager, discovery::PeerDiscovery};
 use crate::modules::message::handler::MessageHandler;
 use crate::modules::peer::manager::MessageRouteRequest;
-use crate::config::app::{AppConfig, ConfigRepository};
+use crate::modules::peer::{discovery::PeerDiscovery, PeerManager};
+use crate::network::UdpTransport;
 use crate::storage::database::establish_connection;
 use std::thread;
 use std::time::Duration;
+use tauri::Emitter;
 
 // Re-export commonly used types
 pub use error::{NeoLanError, Result};
+pub use state::app_state::{PeerDiscoveredDto, TauriEvent};
 pub use state::AppState;
-pub use state::app_state::{TauriEvent, PeerDiscoveredDto};
 
 // Import Tauri commands from submodules
-use commands::peer::{get_peers, get_online_peers, get_peer_by_ip, get_peer_stats, get_network_status};
-use commands::config::{get_config, set_config, reset_config, get_config_value, set_config_value};
-use commands::events::poll_events;
-use commands::message::{send_message, send_text_message, get_messages};
-use commands::file_transfer::{accept_file_transfer, reject_file_transfer, get_file_transfers, cancel_file_transfer};
+use commands::config::{get_config, get_config_value, reset_config, set_config, set_config_value};
 use commands::contacts::{
-    get_contacts, get_contact, create_contact, update_contact, delete_contact,
-    get_contact_groups, create_contact_group, update_contact_group, delete_contact_group,
-    add_contacts_to_group, remove_contacts_from_group, search_contacts, get_contact_stats,
+    add_contacts_to_group, create_contact, create_contact_group, delete_contact,
+    delete_contact_group, get_contact, get_contact_groups, get_contact_stats, get_contacts,
+    remove_contacts_from_group, search_contacts, update_contact, update_contact_group,
+};
+use commands::events::poll_events;
+use commands::file_transfer::{
+    accept_file_transfer, cancel_file_transfer, get_file_transfers, reject_file_transfer,
+};
+use commands::message::{get_messages, send_message, send_text_message};
+use commands::peer::{
+    get_network_status, get_online_peers, get_peer_by_ip, get_peer_stats, get_peers,
 };
 use std::sync::mpsc;
-
-
 
 #[tauri::command]
 async fn get_system_info() -> serde_json::Value {
@@ -55,7 +57,6 @@ async fn get_system_info() -> serde_json::Value {
         "version": "1.0.0"
     })
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

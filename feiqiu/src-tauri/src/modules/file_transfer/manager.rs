@@ -1,7 +1,5 @@
 // File transfer manager - handles file transfer requests and tasks
-use crate::network::{
-    FileSendRequest, ProtocolMessage, UdpTransport, PROTOCOL_VERSION, msg_type,
-};
+use crate::network::{msg_type, FileSendRequest, ProtocolMessage, UdpTransport, PROTOCOL_VERSION};
 use crate::utils::hash;
 use crate::{NeoLanError, Result};
 use std::net::{IpAddr, SocketAddr};
@@ -94,11 +92,7 @@ impl FileTransferManager {
     /// 4. Send via UDP to target peer
     /// 5. Create transfer task in Pending state
     pub fn send_request(&self, path: &Path, target: IpAddr) -> Result<Uuid> {
-        tracing::info!(
-            "Sending file transfer request: {:?} -> {}",
-            path,
-            target
-        );
+        tracing::info!("Sending file transfer request: {:?} -> {}", path, target);
 
         // Validate file exists
         if !path.exists() {
@@ -112,10 +106,7 @@ impl FileTransferManager {
         let file_name = path
             .file_name()
             .ok_or_else(|| {
-                NeoLanError::FileTransfer(format!(
-                    "Invalid file path: {}",
-                    path.display()
-                ))
+                NeoLanError::FileTransfer(format!("Invalid file path: {}", path.display()))
             })?
             .to_string_lossy()
             .to_string();
@@ -151,10 +142,9 @@ impl FileTransferManager {
         };
 
         // Serialize and send via UDP
-        let msg_bytes =
-            crate::network::serialize_message(&proto_msg).map_err(|e| {
-                NeoLanError::FileTransfer(format!("Failed to serialize message: {}", e))
-            })?;
+        let msg_bytes = crate::network::serialize_message(&proto_msg).map_err(|e| {
+            NeoLanError::FileTransfer(format!("Failed to serialize message: {}", e))
+        })?;
 
         let addr = SocketAddr::new(target, 2425); // IPMsg standard port for sending to peers
         self.udp.send_to(&msg_bytes, addr)?;
@@ -168,13 +158,7 @@ impl FileTransferManager {
         );
 
         // Create and store transfer task
-        let task = TransferTask::new_upload(
-            target,
-            path.to_path_buf(),
-            file_name,
-            file_size,
-            md5,
-        );
+        let task = TransferTask::new_upload(target, path.to_path_buf(), file_name, file_size, md5);
 
         let task_id = task.id;
         self.add_task(task)?;
@@ -258,9 +242,10 @@ impl FileTransferManager {
     /// * `Ok(())` - Task updated
     /// * `Err(NeoLanError)` - Update failed
     pub fn update_task(&self, task: TransferTask) -> Result<()> {
-        let mut tasks = self.tasks.lock().map_err(|_| {
-            NeoLanError::Other("Failed to lock tasks".to_string())
-        })?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| NeoLanError::Other("Failed to lock tasks".to_string()))?;
 
         if let Some(existing) = tasks.iter_mut().find(|t| t.id == task.id) {
             *existing = task;
@@ -282,19 +267,17 @@ impl FileTransferManager {
     /// * `Ok(())` - Task cancelled
     /// * `Err(NeoLanError)` - Cancel failed
     pub fn cancel_task(&self, id: Uuid) -> Result<()> {
-        let mut tasks = self.tasks.lock().map_err(|_| {
-            NeoLanError::Other("Failed to lock tasks".to_string())
-        })?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| NeoLanError::Other("Failed to lock tasks".to_string()))?;
 
         if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
             task.mark_cancelled();
             tracing::info!("Transfer task cancelled: {}", id);
             Ok(())
         } else {
-            Err(NeoLanError::FileTransfer(format!(
-                "Task not found: {}",
-                id
-            )))
+            Err(NeoLanError::FileTransfer(format!("Task not found: {}", id)))
         }
     }
 
@@ -318,9 +301,10 @@ impl FileTransferManager {
 
     /// Add a task to the list
     pub fn add_task(&self, task: TransferTask) -> Result<()> {
-        let mut tasks = self.tasks.lock().map_err(|_| {
-            NeoLanError::Other("Failed to lock tasks".to_string())
-        })?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| NeoLanError::Other("Failed to lock tasks".to_string()))?;
 
         tasks.push(task);
         Ok(())
@@ -346,8 +330,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         );
 
         // Create a test file
@@ -375,8 +359,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         );
 
         // Create a test task manually
@@ -427,8 +411,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         );
 
         // Add multiple tasks with different statuses

@@ -6,14 +6,14 @@
 // - Managing peer state transitions
 // - Routing text messages to MessageHandler
 
+use crate::modules::peer::{discovery::PeerDiscovery, types::*};
 use crate::{network::ProtocolMessage, Result};
-use crate::modules::peer::{types::*, discovery::PeerDiscovery};
 use std::collections::HashMap;
 use std::io::{self, Error as IoError};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex, PoisonError};
-use tracing::{info, warn, debug, error};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, PoisonError};
+use tracing::{debug, error, info, warn};
 
 /// Safe mutex lock helper - prevents panics on mutex poisoning
 ///
@@ -107,15 +107,13 @@ impl PeerManager {
     pub fn start(&self) -> Result<()> {
         // Check if already running
         {
-            let running = self.running.lock()
-                .map_err(lock_error)?;
+            let running = self.running.lock().map_err(lock_error)?;
             if *running {
                 warn!("PeerManager already running");
                 return Ok(());
             }
             drop(running);
-            let mut running = self.running.lock()
-                .map_err(lock_error)?;
+            let mut running = self.running.lock().map_err(lock_error)?;
             *running = true;
         }
 
@@ -132,9 +130,7 @@ impl PeerManager {
         self.discovery.listen_incoming(move |msg, sender| {
             // Check if still running
             {
-                let is_running = running.lock()
-                    .map(|r| *r)
-                    .unwrap_or(false);
+                let is_running = running.lock().map(|r| *r).unwrap_or(false);
                 if !is_running {
                     return;
                 }
@@ -166,9 +162,13 @@ impl PeerManager {
     ) -> Result<()> {
         let ip = sender.ip();
 
-        info!("📨 [UDP RECEIVE] Received message from {}: type={}, sender={}, content={}",
-            ip, msg.msg_type, msg.sender_name,
-            msg.content.chars().take(50).collect::<String>());
+        info!(
+            "📨 [UDP RECEIVE] Received message from {}: type={}, sender={}, content={}",
+            ip,
+            msg.msg_type,
+            msg.sender_name,
+            msg.content.chars().take(50).collect::<String>()
+        );
 
         // Extract base mode (low 8 bits) to handle messages with options
         let mode = crate::network::msg_type::get_mode(msg.msg_type);
@@ -191,8 +191,11 @@ impl PeerManager {
             }
             // IPMSG_SENDMSG: Text message - route to MessageHandler
             crate::network::msg_type::IPMSG_SENDMSG => {
-                info!("💌 [TEXT MESSAGE] Routing text message to MessageHandler: from={}, content={}",
-                    msg.sender_name, msg.content.chars().take(100).collect::<String>());
+                info!(
+                    "💌 [TEXT MESSAGE] Routing text message to MessageHandler: from={}, content={}",
+                    msg.sender_name,
+                    msg.content.chars().take(100).collect::<String>()
+                );
                 if let Some(ref tx) = *safe_lock!(message_tx) {
                     let route_req = MessageRouteRequest {
                         message: msg,
@@ -227,8 +230,12 @@ impl PeerManager {
             }
             _ => {
                 // Other message types (FILE_SEND_REQ, etc.)
-                debug!("ℹ️ Ignoring message type: {} (mode: {}, options: 0x{:06x})",
-                    msg.msg_type, mode, crate::network::msg_type::get_opt(msg.msg_type));
+                debug!(
+                    "ℹ️ Ignoring message type: {} (mode: {}, options: 0x{:06x})",
+                    msg.msg_type,
+                    mode,
+                    crate::network::msg_type::get_opt(msg.msg_type)
+                );
             }
         }
 
@@ -243,15 +250,17 @@ impl PeerManager {
     ) -> Result<()> {
         let ip = sender.ip();
 
-        info!("Peer online: {} ({}@{})", ip, msg.sender_name, msg.sender_host);
+        info!(
+            "Peer online: {} ({}@{})",
+            ip, msg.sender_name, msg.sender_host
+        );
 
-        let mut peers = peers.lock()
-            .map_err(lock_error)?;
+        let mut peers = peers.lock().map_err(lock_error)?;
 
         // Create or update peer
-        let peer = peers.entry(ip).or_insert_with(|| {
-            PeerNode::new(ip, sender.port())
-        });
+        let peer = peers
+            .entry(ip)
+            .or_insert_with(|| PeerNode::new(ip, sender.port()));
 
         // Update peer information
         peer.port = sender.port();
@@ -265,14 +274,10 @@ impl PeerManager {
     }
 
     /// Handle offline message
-    fn handle_offline_msg(
-        peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>,
-        ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_offline_msg(peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>, ip: IpAddr) -> Result<()> {
         info!("Peer offline: {}", ip);
 
-        let mut peers = peers.lock()
-            .map_err(lock_error)?;
+        let mut peers = peers.lock().map_err(lock_error)?;
 
         if let Some(peer) = peers.get_mut(&ip) {
             peer.mark_offline();
@@ -291,8 +296,7 @@ impl PeerManager {
     ) -> Result<()> {
         debug!("Heartbeat from: {}", ip);
 
-        let mut peers = peers.lock()
-            .map_err(lock_error)?;
+        let mut peers = peers.lock().map_err(lock_error)?;
 
         if let Some(peer) = peers.get_mut(&ip) {
             peer.update_last_seen();
@@ -320,8 +324,7 @@ impl PeerManager {
 
         info!("Adding peer: {} ({})", ip, peer.display_name());
 
-        let mut peers = self.peers.lock()
-            .map_err(lock_error)?;
+        let mut peers = self.peers.lock().map_err(lock_error)?;
 
         peers.insert(ip, peer);
 
@@ -340,8 +343,7 @@ impl PeerManager {
     pub fn update_peer_status(&self, ip: IpAddr, status: PeerStatus) -> Result<()> {
         debug!("Updating peer status: {} -> {:?}", ip, status);
 
-        let mut peers = self.peers.lock()
-            .map_err(lock_error)?;
+        let mut peers = self.peers.lock().map_err(lock_error)?;
 
         if let Some(peer) = peers.get_mut(&ip) {
             peer.status = status.clone();
@@ -360,7 +362,8 @@ impl PeerManager {
     /// # Returns
     /// * `Vec<PeerNode>` - List of all peers
     pub fn get_all_peers(&self) -> Vec<PeerNode> {
-        self.peers.lock()
+        self.peers
+            .lock()
             .map(|peers| peers.values().cloned().collect())
             .unwrap_or_default()
     }
@@ -370,13 +373,9 @@ impl PeerManager {
     /// # Returns
     /// * `Vec<PeerNode>` - List of online peers
     pub fn get_online_peers(&self) -> Vec<PeerNode> {
-        self.peers.lock()
-            .map(|peers| {
-                peers.values()
-                    .filter(|p| p.is_online())
-                    .cloned()
-                    .collect()
-            })
+        self.peers
+            .lock()
+            .map(|peers| peers.values().filter(|p| p.is_online()).cloned().collect())
             .unwrap_or_default()
     }
 
@@ -388,10 +387,7 @@ impl PeerManager {
     /// # Returns
     /// * `Option<PeerNode>` - Peer if found
     pub fn get_peer(&self, ip: IpAddr) -> Option<PeerNode> {
-        self.peers.lock()
-            .ok()?
-            .get(&ip)
-            .cloned()
+        self.peers.lock().ok()?.get(&ip).cloned()
     }
 
     /// Get peer count
@@ -399,9 +395,7 @@ impl PeerManager {
     /// # Returns
     /// * `usize` - Number of peers
     pub fn peer_count(&self) -> usize {
-        self.peers.lock()
-            .map(|peers| peers.len())
-            .unwrap_or(0)
+        self.peers.lock().map(|peers| peers.len()).unwrap_or(0)
     }
 
     /// Get online peer count
@@ -409,7 +403,8 @@ impl PeerManager {
     /// # Returns
     /// * `usize` - Number of online peers
     pub fn online_peer_count(&self) -> usize {
-        self.peers.lock()
+        self.peers
+            .lock()
             .map(|peers| peers.values().filter(|p| p.is_online()).count())
             .unwrap_or(0)
     }
@@ -427,7 +422,8 @@ impl PeerManager {
     /// # Returns
     /// * `bool` - true if peer was removed, false if not found
     pub fn remove_peer(&self, ip: IpAddr) -> bool {
-        self.peers.lock()
+        self.peers
+            .lock()
             .ok()
             .and_then(|mut peers| peers.remove(&ip))
             .is_some()
@@ -441,7 +437,8 @@ impl PeerManager {
     /// # Returns
     /// * `bool` - true if peer exists
     pub fn has_peer(&self, ip: IpAddr) -> bool {
-        self.peers.lock()
+        self.peers
+            .lock()
             .map(|peers| peers.contains_key(&ip))
             .unwrap_or(false)
     }
@@ -455,11 +452,7 @@ mod tests {
     #[test]
     fn test_peer_manager_creation() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         assert_eq!(manager.peer_count(), 0);
@@ -469,11 +462,7 @@ mod tests {
     #[test]
     fn test_add_peer() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         let ip = "192.168.1.100".parse().unwrap();
@@ -488,11 +477,7 @@ mod tests {
     #[test]
     fn test_get_peer() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         let ip = "192.168.1.100".parse().unwrap();
@@ -508,11 +493,7 @@ mod tests {
     #[test]
     fn test_update_peer_status() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         let ip = "192.168.1.100".parse().unwrap();
@@ -540,11 +521,7 @@ mod tests {
     #[test]
     fn test_remove_peer() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         let ip = "192.168.1.100".parse().unwrap();
@@ -565,11 +542,7 @@ mod tests {
     #[test]
     fn test_get_all_peers() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         let ip1 = "192.168.1.100".parse().unwrap();
@@ -585,11 +558,7 @@ mod tests {
     #[test]
     fn test_get_online_peers() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
         let manager = PeerManager::new(discovery);
 
         let ip1 = "192.168.1.100".parse().unwrap();

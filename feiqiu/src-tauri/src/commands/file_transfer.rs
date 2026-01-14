@@ -23,9 +23,8 @@ pub fn accept_file_transfer(
     tracing::info!("Accepting file transfer request: {}", request_id);
 
     // Parse request ID
-    let uuid = Uuid::parse_str(&request_id).map_err(|_| {
-        NeoLanError::Validation(format!("Invalid request ID: {}", request_id))
-    })?;
+    let uuid = Uuid::parse_str(&request_id)
+        .map_err(|_| NeoLanError::Validation(format!("Invalid request ID: {}", request_id)))?;
 
     // TODO: Get pending request from a pending requests storage
     // For now, we need to pass the full request info or store it somewhere
@@ -55,16 +54,12 @@ pub fn accept_file_transfer(
 /// * `Ok(())` - Rejection sent successfully
 /// * `Err(String)` - Reject failed
 #[tauri::command]
-pub fn reject_file_transfer(
-    request_id: String,
-    _state: State<'_, AppState>,
-) -> Result<()> {
+pub fn reject_file_transfer(request_id: String, _state: State<'_, AppState>) -> Result<()> {
     tracing::info!("Rejecting file transfer request: {}", request_id);
 
     // Parse request ID
-    let _uuid = Uuid::parse_str(&request_id).map_err(|_| {
-        NeoLanError::Validation(format!("Invalid request ID: {}", request_id))
-    })?;
+    let _uuid = Uuid::parse_str(&request_id)
+        .map_err(|_| NeoLanError::Validation(format!("Invalid request ID: {}", request_id)))?;
 
     // TODO: Similar to accept_file_transfer, we need to:
     // 1. Look up the pending request
@@ -105,9 +100,8 @@ pub fn get_file_transfers(_state: State<'_, AppState>) -> Vec<TaskDto> {
 pub fn cancel_file_transfer(task_id: String, _state: State<'_, AppState>) -> Result<()> {
     tracing::info!("Cancelling file transfer task: {}", task_id);
 
-    let _uuid = Uuid::parse_str(&task_id).map_err(|_| {
-        NeoLanError::Validation(format!("Invalid task ID: {}", task_id))
-    })?;
+    let _uuid = Uuid::parse_str(&task_id)
+        .map_err(|_| NeoLanError::Validation(format!("Invalid task ID: {}", task_id)))?;
 
     // TODO: Call FileTransferManager::cancel_task()
 

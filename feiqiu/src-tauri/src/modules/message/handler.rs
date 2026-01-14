@@ -9,14 +9,14 @@
 // - Emits Tauri events for received messages
 
 use crate::config::AppConfig;
+use crate::modules::file_transfer::FileTransferResponse;
 use crate::modules::message::types::{Message, MessageType};
 use crate::modules::peer::types::PeerInfo;
-use crate::network::{serialize_message, msg_type, ProtocolMessage};
 use crate::network::udp::UdpTransport;
-use crate::storage::message_repo::{MessageRepository, MessageModel};
-use crate::state::AppState;
-use crate::modules::file_transfer::FileTransferResponse;
+use crate::network::{msg_type, serialize_message, ProtocolMessage};
 use crate::state::app_state::TauriEvent;
+use crate::state::AppState;
+use crate::storage::message_repo::{MessageModel, MessageRepository};
 use crate::{NeoLanError, Result};
 use chrono::Utc;
 use std::net::{IpAddr, SocketAddr};
@@ -88,7 +88,11 @@ impl MessageHandler {
     ///
     /// # Returns
     /// A new MessageHandler instance with database storage enabled
-    pub fn with_storage(udp: UdpTransport, config: AppConfig, message_repo: MessageRepository) -> Self {
+    pub fn with_storage(
+        udp: UdpTransport,
+        config: AppConfig,
+        message_repo: MessageRepository,
+    ) -> Self {
         Self {
             udp,
             config,
@@ -454,28 +458,46 @@ impl MessageHandler {
 
     /// Handle a text message (IPMSG_SENDMSG)
     ///
-    /// Stores the received text message to the database.
+    /// Stores received text message to database.
+    /// Auto-adds sender to contacts if not already in database.
     ///
     /// # Arguments
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     /// * `local_ip` - Local IP address (receiver)
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, sender_name = %proto_msg.sender_name, packet_id = %proto_msg.packet_id))]
-    fn handle_text_message(
+    pub fn handle_text_message(
         &self,
         proto_msg: &ProtocolMessage,
         sender_ip: IpAddr,
         local_ip: IpAddr,
     ) -> Result<()> {
-        tracing::info!(
-            "💬 Processing text message: from={}, to={}, msg_id={}, content={}",
-            proto_msg.sender_name,
-            local_ip,
-            proto_msg.packet_id,
-            proto_msg.content.chars().take(100).collect::<String>()
-        );
+        // Get peer info to check if we need to create a contact
+        let peer_info_opt = if let Some(ref manager) = self.manager {
+            let peers = unsafe { manager.peers.lock() };
+            peers.get(&sender_ip).cloned()
+        };
 
-        // Only store if message repository is available
+        // Check if sender is already in contacts by IP address
+        let should_add_contact = if let Some(ref repo) = self.contact_repo {
+            let sender_ip_str = sender_ip.to_string();
+            
+            // Query by IP address (exact match on peer_ip string)
+            // This is safer than converting to peer_id
+            let existing_contacts = repo
+                .find_all(Some(contacts::ContactFilters {
+                    search: Some(sender_ip_str.clone()),
+                }))
+                .await
+                .map_err(|e| NeoLanError::Storage(format!("Failed to check contacts: {}", e)))?;
+            
+            // Only add if sender is not already in contacts
+            existing_contacts.is_empty()
+        } else {
+            false // If no repo, don't add
+        };
+
+        // Store to database
         if let Some(ref repo) = self.message_repo {
             let message_model = MessageModel {
                 id: 0, // Auto-increment
@@ -495,21 +517,111 @@ impl MessageHandler {
             // Store to database (blocking - should be async in production)
             let rt = tokio::runtime::Runtime::new()
                 .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
+            rt.block_on(async { repo.insert(&message_model).await })?;
 
-            rt.block_on(async {
-                repo.insert(&message_model).await
-            })?;
+            tracing::debug!(
+                "💾 Message stored to database: msg_id={}",
+                proto_msg.packet_id
+            );
 
-            tracing::debug!("💾 Message stored to database: msg_id={}", proto_msg.packet_id);
+            // Auto-add sender to contacts if not already exists
+            if should_add_contact {
+                if let Some(peer_info) = peer_info_opt {
+                    tracing::info!(
+                        "📝 [AUTO-ADD] Adding sender to contacts: {}@{} (not in database)",
+                        sender_ip,
+                        proto_msg.sender_name
+                    );
+
+                    // Create new contact
+                    // Note: peer_id is not set because we don't have the peer's database ID
+                    // We'll link via IP address (peer_ip column added in migration)
+                    let new_contact = contacts::CreateContact {
+                        peer_id: None,
+                        name: proto_msg.sender_name.clone(),
+                        nickname: peer_info.hostname.clone(), // Use hostname as initial nickname
+                        avatar: peer_info.avatar.clone(),
+                        is_online: peer_info.is_online(),
+                    };
+
+                    // Insert contact
+                    let contact_model = contacts::Model {
+                        name: new_contact.name.clone(),
+                        nickname: new_contact.nickname.clone(),
+                        avatar: new_contact.avatar.clone(),
+                        is_favorite: false,
+                        // peer_id will be None, will link via peer_ip
+                        // is_online, pinyin, last_seen, created_at, updated_at will be set by defaults
+                        ..Default::default()
+                    };
+
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
+                    let contact = rt.block_on(async {
+                        let db = self.contact_repo.as_ref().unwrap();
+                        contacts::Entity::insert(contact_model).into_active_model().exec(&db).await
+                    }).await.map_err(|e| NeoLanError::Storage(format!("Failed to insert contact: {}", e)))?;
+
+                    tracing::info!(
+                        "✅ [AUTO-ADD] Contact added to database: {} (peer_ip: {})",
+                        proto_msg.sender_name,
+                        sender_ip
+                    );
+                } else {
+                    tracing::debug!(
+                        "📋 [AUTO-ADD] Sender {} already in contacts (peer_ip: {}), skipping contact creation",
+                        proto_msg.sender_name,
+                        sender_ip,
+                    );
+                }
+            } else {
+                tracing::warn!("⚠️ [AUTO-ADD] Contact repository not available, skipping contact creation");
+            }
         } else {
-            tracing::warn!("⚠️ Message repository not available - message not stored");
+            tracing::warn!("⚠️ [AUTO-ADD] Message repository not available - contact not created");
         }
+
+        // Send IPMSG_RECVMSG acknowledgment if message has SENDCHECKOPT flag
+        if msg_type::has_opt(proto_msg.msg_type, msg_type::IPMSG_SENDCHECKOPT) {
+            tracing::info!(
+                "📤 [handle_text_message] Sending IPMSG_RECVMSG acknowledgment to {}: original_msg_id={}, ack_msg_id={}",
+                sender_ip, proto_msg.packet_id, self.next_packet_id()
+            );
+
+            // Create acknowledgment message
+            let ack_msg = Message {
+                id: uuid::Uuid::new_v4(),
+                packet_id: self.next_packet_id().to_string(), // Send back original packet ID
+                sender: PeerInfo::new(sender_ip, self.config.udp_port, Some(self.config.username.clone())),
+                receiver: PeerInfo::new(sender_ip, self.config.udp_port, None),
+                msg_type: MessageType::RecvAck, // This will map to IPMSG_RECVMSG
+                content: proto_msg.packet_id.to_string(), // Send back original packet ID
+                timestamp: chrono::Utc::now(),
+            };
+
+            // Convert to protocol message
+            let proto_ack = ack_msg.to_protocol(&self.config.username, &self.config.hostname);
+
+            // Serialize and send
+            let bytes = serialize_message(&proto_ack)?;
+
+            let target_addr = SocketAddr::new(sender_ip, self.config.udp_port);
+            self.udp.send_to(&bytes, target_addr)?;
+
+            tracing::debug!("📤 [handle_text_message] IPMSG_RECVMSG acknowledgment sent successfully");
+        } else {
+            tracing::debug!("ℹ️ [handle_text_message] No SENDCHECKOPT flag (msg_type=0x{:08x}) - skipping acknowledgment",
+                proto_msg.msg_type);
+        }
+
+        Ok(())
+    }
 
         // Emit Tauri event for real-time frontend update
         if let Some(ref app_state) = self.app_state {
             let now = Utc::now();
             let event = TauriEvent::MessageReceived {
-                id: 0,  // 0 for real-time messages not yet saved to database
+                id: 0, // 0 for real-time messages not yet saved to database
                 msg_id: proto_msg.packet_id.to_string(),
                 sender_ip: sender_ip.to_string(),
                 sender_name: proto_msg.sender_name.clone(),
@@ -523,7 +635,8 @@ impl MessageHandler {
                 created_at: now.timestamp_millis(),
             };
             app_state.emit_tauri_event(event);
-            tracing::info!("✅ Emitted message-received event to frontend: msg_id={}, from={}, content={}",
+            tracing::info!(
+                "✅ Emitted message-received event to frontend: msg_id={}, from={}, content={}",
                 proto_msg.packet_id,
                 proto_msg.sender_name,
                 proto_msg.content.chars().take(50).collect::<String>()
@@ -550,27 +663,35 @@ impl MessageHandler {
                     Some(self.config.username.clone()),
                 ),
                 receiver: PeerInfo::new(sender_ip, self.config.udp_port, None),
-                msg_type: MessageType::RecvAck,  // This will map to IPMSG_RECVMSG
-                content: proto_msg.packet_id.to_string(),  // Send back the original packet ID
+                msg_type: MessageType::RecvAck, // This will map to IPMSG_RECVMSG
+                content: proto_msg.packet_id.to_string(), // Send back the original packet ID
                 timestamp: chrono::Utc::now(),
             };
 
             // Convert to protocol message
             let proto_ack = ack_msg.to_protocol(&self.config.username, &self.config.hostname);
 
-            tracing::debug!("📤 [handle_text_message] ACK protocol msg_type=0x{:08x}, packet_id={}",
-                proto_ack.msg_type, proto_ack.packet_id);
+            tracing::debug!(
+                "📤 [handle_text_message] ACK protocol msg_type=0x{:08x}, packet_id={}",
+                proto_ack.msg_type,
+                proto_ack.packet_id
+            );
 
             // Serialize and send
             let bytes = serialize_message(&proto_ack)?;
             let target_addr = SocketAddr::new(sender_ip, self.config.udp_port);
 
-            tracing::debug!("📤 [handle_text_message] Sending ACK to {}, bytes_len={}",
-                target_addr, bytes.len());
+            tracing::debug!(
+                "📤 [handle_text_message] Sending ACK to {}, bytes_len={}",
+                target_addr,
+                bytes.len()
+            );
 
             self.udp.send_to(&bytes, target_addr)?;
 
-            tracing::debug!("✅ [handle_text_message] IPMSG_RECVMSG acknowledgment sent successfully");
+            tracing::debug!(
+                "✅ [handle_text_message] IPMSG_RECVMSG acknowledgment sent successfully"
+            );
         } else {
             tracing::debug!("ℹ️ [handle_text_message] No SENDCHECKOPT flag (msg_type=0x{:08x}) - skipping acknowledgment",
                 proto_msg.msg_type);
@@ -613,10 +734,14 @@ impl MessageHandler {
                     pending.file_name
                 );
             } else {
-                tracing::warn!("App state not available - cannot notify user of file transfer request");
+                tracing::warn!(
+                    "App state not available - cannot notify user of file transfer request"
+                );
             }
         } else {
-            tracing::warn!("File transfer handler not available - cannot handle file transfer request");
+            tracing::warn!(
+                "File transfer handler not available - cannot handle file transfer request"
+            );
         }
 
         Ok(())
@@ -632,11 +757,7 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, packet_id = %proto_msg.packet_id))]
-    fn handle_recv_msg(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_recv_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "✅ [handle_recv_msg] Message receipt acknowledged from {}: msg_id={}, content={}",
             sender_ip,
@@ -648,7 +769,7 @@ impl MessageHandler {
         if let Some(ref app_state) = self.app_state {
             let now = Utc::now();
             let event = TauriEvent::MessageReceiptAck {
-                msg_id: proto_msg.content.clone(),  // Content contains the original message ID
+                msg_id: proto_msg.content.clone(), // Content contains the original message ID
                 sender_ip: sender_ip.to_string(),
                 sender_name: proto_msg.sender_name.clone(),
                 acknowledged_at: now.timestamp_millis(),
@@ -672,11 +793,7 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
-    fn handle_read_msg(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_read_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "📖 Message read by {}: msg_id={}",
             sender_ip,
@@ -695,11 +812,7 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
-    fn handle_del_msg(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_del_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "🗑️ Delete message request from {}: msg_id={}",
             sender_ip,
@@ -718,11 +831,7 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
-    fn handle_answer_read_msg(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_answer_read_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "📨 Read answer from {}: msg_id={}",
             sender_ip,
@@ -762,11 +871,7 @@ impl MessageHandler {
     /// # Arguments
     /// * `proto_msg` - Protocol message containing user info
     /// * `sender_ip` - Sender's IP address
-    fn handle_user_info(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_user_info(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "ℹ️ [USER INFO] User info from {}: {}",
             sender_ip,
@@ -783,11 +888,7 @@ impl MessageHandler {
     /// # Arguments
     /// * `proto_msg` - Protocol message containing absence info
     /// * `sender_ip` - Sender's IP address
-    fn handle_absence_info(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_absence_info(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "🏖️ [ABSENCE] Absence info from {}: {}",
             sender_ip,
@@ -804,11 +905,7 @@ impl MessageHandler {
     /// # Arguments
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
-    fn handle_release_files(
-        &self,
-        proto_msg: &ProtocolMessage,
-        sender_ip: IpAddr,
-    ) -> Result<()> {
+    fn handle_release_files(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "🔄 [RELEASE] File release notification from {}: msg_id={}",
             sender_ip,
@@ -982,7 +1079,7 @@ mod tests {
         // Create message with valid packet ID
         let message = Message {
             id: uuid::Uuid::new_v4(),
-            packet_id: "12345".to_string(),  // Valid small packet ID for testing
+            packet_id: "12345".to_string(), // Valid small packet ID for testing
             sender: PeerInfo::new(target_ip, receiver_port, Some("Receiver".to_string())),
             receiver: PeerInfo::new(target_ip, sender_udp.port(), Some("Sender".to_string())),
             msg_type: MessageType::Text,

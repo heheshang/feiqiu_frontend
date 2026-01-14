@@ -1,6 +1,6 @@
 // src-tauri/src/storage/contact_repo.rs
 use crate::error::NeoLanError;
-use crate::storage::entities::{contacts, contact_groups, contact_group_members, peers};
+use crate::storage::entities::{contact_group_members, contact_groups, contacts, peers};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -104,12 +104,15 @@ impl ContactRepository {
                     .filter(contact_group_members::Column::GroupId.eq(group_id))
                     .all(&self.db)
                     .await
-                    .map_err(|e| NeoLanError::Storage(format!("Failed to fetch group members: {}", e)))?
+                    .map_err(|e| {
+                        NeoLanError::Storage(format!("Failed to fetch group members: {}", e))
+                    })?
                     .into_iter()
                     .map(|m| m.contact_id)
                     .collect();
 
-                return Ok(result.into_iter()
+                return Ok(result
+                    .into_iter()
                     .filter(|c| contact_ids.contains(&c.id))
                     .collect());
             }
@@ -262,7 +265,10 @@ impl ContactRepository {
         Ok(result)
     }
 
-    pub async fn create_group(&self, group: CreateGroup) -> Result<contact_groups::Model, NeoLanError> {
+    pub async fn create_group(
+        &self,
+        group: CreateGroup,
+    ) -> Result<contact_groups::Model, NeoLanError> {
         let now = chrono::Utc::now().naive_utc();
         let new_group = contact_groups::ActiveModel {
             name: Set(group.name),
@@ -333,11 +339,7 @@ impl ContactRepository {
 
     // ========== Group Membership ==========
 
-    pub async fn add_to_group(
-        &self,
-        contact_id: i32,
-        group_id: i32,
-    ) -> Result<(), NeoLanError> {
+    pub async fn add_to_group(&self, contact_id: i32, group_id: i32) -> Result<(), NeoLanError> {
         // Check if contact exists
         let _contact = self
             .find_by_id(contact_id)
@@ -428,10 +430,7 @@ impl ContactRepository {
 
     // ========== Sync from Peers ==========
 
-    pub async fn sync_from_peers(
-        &self,
-        peer_models: Vec<peers::Model>,
-    ) -> Result<(), NeoLanError> {
+    pub async fn sync_from_peers(&self, peer_models: Vec<peers::Model>) -> Result<(), NeoLanError> {
         for peer in peer_models {
             // Check if contact already exists for this peer
             let existing = contacts::Entity::find()
@@ -453,7 +452,9 @@ impl ContactRepository {
                 let now = chrono::Utc::now().naive_utc();
                 let new_contact = contacts::ActiveModel {
                     peer_id: Set(Some(peer.id)),
-                    name: Set(peer.username.unwrap_or_else(|| peer.hostname.clone().unwrap_or_default())),
+                    name: Set(peer
+                        .username
+                        .unwrap_or_else(|| peer.hostname.clone().unwrap_or_default())),
                     nickname: Set(peer.nickname),
                     avatar: Set(peer.avatar),
                     phone: Set(None),

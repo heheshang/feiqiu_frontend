@@ -88,16 +88,32 @@ impl MigrationTrait for Migration {
             .drop_index(Index::drop().name("idx_peers_online_status").to_owned())
             .await?;
         manager
-            .drop_index(Index::drop().name("idx_transfers_status_created").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_transfers_status_created")
+                    .to_owned(),
+            )
             .await?;
         manager
-            .drop_index(Index::drop().name("idx_messages_receiver_offline_sent").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_messages_receiver_offline_sent")
+                    .to_owned(),
+            )
             .await?;
         manager
-            .drop_index(Index::drop().name("idx_messages_receiver_sender_sent").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_messages_receiver_sender_sent")
+                    .to_owned(),
+            )
             .await?;
         manager
-            .drop_index(Index::drop().name("idx_messages_sender_receiver_sent").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_messages_sender_receiver_sent")
+                    .to_owned(),
+            )
             .await?;
 
         Ok(())

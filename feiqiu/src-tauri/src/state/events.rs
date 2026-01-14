@@ -12,7 +12,11 @@ use std::net::IpAddr;
 #[serde(tag = "type", content = "data")]
 pub enum AppEvent {
     /// Peer came online
-    PeerOnline { ip: String, port: u16, username: Option<String> },
+    PeerOnline {
+        ip: String,
+        port: u16,
+        username: Option<String>,
+    },
 
     /// Peer went offline
     PeerOffline { ip: String },
@@ -21,7 +25,10 @@ pub enum AppEvent {
     PeerStatusChanged { ip: String, status: String },
 
     /// Peer information updated
-    PeerUpdated { ip: String, username: Option<String> },
+    PeerUpdated {
+        ip: String,
+        username: Option<String>,
+    },
 
     /// Configuration changed
     ConfigChanged,
@@ -42,10 +49,7 @@ pub enum AppEvent {
     },
 
     /// Message sent
-    MessageSent {
-        msg_id: String,
-        receiver_ip: String,
-    },
+    MessageSent { msg_id: String, receiver_ip: String },
 }
 
 impl AppEvent {
@@ -161,7 +165,11 @@ mod tests {
 
         let event = AppEvent::peer_online(ip, 2425, Some("Alice".to_string()));
         match event {
-            AppEvent::PeerOnline { ip: e_ip, port, username } => {
+            AppEvent::PeerOnline {
+                ip: e_ip,
+                port,
+                username,
+            } => {
                 assert_eq!(e_ip, "192.168.1.100");
                 assert_eq!(port, 2425);
                 assert_eq!(username, Some("Alice".to_string()));

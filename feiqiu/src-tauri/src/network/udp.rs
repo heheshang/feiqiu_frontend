@@ -5,8 +5,8 @@
 // - Unicast messaging (direct peer communication)
 // - Receiving incoming messages
 
-use crate::{NeoLanError, Result};
 use crate::config::AppConfig;
+use crate::{NeoLanError, Result};
 use std::net::{SocketAddr, UdpSocket};
 
 /// Default UDP port for IPMsg protocol (re-exported from AppConfig)
@@ -52,13 +52,10 @@ impl UdpTransport {
 
         // Bind to specified address (0.0.0.0 means all interfaces)
         let addr = format!("0.0.0.0:{}", port);
-        let socket = UdpSocket::bind(&addr)
-            .map_err(|e| NeoLanError::Network(e))?;
+        let socket = UdpSocket::bind(&addr).map_err(|e| NeoLanError::Network(e))?;
 
         // Get the actual bound port (in case port was 0)
-        let local_addr = socket
-            .local_addr()
-            .map_err(|e| NeoLanError::Network(e))?;
+        let local_addr = socket.local_addr().map_err(|e| NeoLanError::Network(e))?;
         let actual_port = local_addr.port();
 
         tracing::info!("UDP socket bound to port {}", actual_port);
@@ -85,11 +82,19 @@ impl UdpTransport {
         for attempt_port in start_port..end_port {
             match Self::bind(attempt_port) {
                 Ok(transport) => {
-                    tracing::info!("UDP socket bound to port {} (attempt {})", transport.port, attempt_port - start_port + 1);
+                    tracing::info!(
+                        "UDP socket bound to port {} (attempt {})",
+                        transport.port,
+                        attempt_port - start_port + 1
+                    );
                     return Ok(transport);
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to bind to port {}: {}, retrying...", attempt_port, e);
+                    tracing::warn!(
+                        "Failed to bind to port {}: {}, retrying...",
+                        attempt_port,
+                        e
+                    );
                     if attempt_port == end_port - 1 {
                         return Err(e);
                     }
@@ -150,10 +155,12 @@ impl UdpTransport {
         // This allows discovery to work with custom UDP port configurations
         let addr: SocketAddr = format!("{}:{}", BROADCAST_ADDR, self.port)
             .parse()
-            .map_err(|_| NeoLanError::Network(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Invalid broadcast address",
-            )))?;
+            .map_err(|_| {
+                NeoLanError::Network(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid broadcast address",
+                ))
+            })?;
 
         tracing::debug!("Broadcasting to {}", addr);
         self.send_to(data, addr)
@@ -185,11 +192,7 @@ impl UdpTransport {
             .send_to(data, addr)
             .map_err(|e| NeoLanError::Network(e))?;
 
-        tracing::trace!(
-            "Sent {} bytes to {}",
-            bytes_sent,
-            addr.ip()
-        );
+        tracing::trace!("Sent {} bytes to {}", bytes_sent, addr.ip());
 
         Ok(())
     }
@@ -227,11 +230,7 @@ impl UdpTransport {
             )));
         }
 
-        tracing::trace!(
-            "Received {} bytes from {}",
-            bytes_received,
-            addr.ip()
-        );
+        tracing::trace!("Received {} bytes from {}", bytes_received, addr.ip());
 
         Ok((bytes_received, addr))
     }
@@ -285,12 +284,12 @@ impl UdpTransport {
     pub fn join_multicast(&self, multiaddr: &str) -> Result<()> {
         use std::net::IpAddr;
 
-        let addr: IpAddr = multiaddr
-            .parse()
-            .map_err(|_| NeoLanError::Network(std::io::Error::new(
+        let addr: IpAddr = multiaddr.parse().map_err(|_| {
+            NeoLanError::Network(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Invalid multicast address",
-            )))?;
+            ))
+        })?;
 
         self.socket
             .join_multicast_v4(&addr, std::net::Ipv4Addr::UNSPECIFIED)

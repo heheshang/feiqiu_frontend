@@ -1,6 +1,6 @@
 // Business logic modules
-pub mod peer;
-pub mod message;
-pub mod file_transfer;
 pub mod crypto;
+pub mod file_transfer;
 pub mod group;
+pub mod message;
+pub mod peer;

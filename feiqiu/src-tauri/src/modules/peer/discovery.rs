@@ -5,8 +5,8 @@
 // - Listening for peer announcements
 // - Processing incoming discovery messages
 
+use crate::network::{msg_type, serialize_message, ProtocolMessage, UdpTransport};
 use crate::Result;
-use crate::network::{UdpTransport, serialize_message, ProtocolMessage, msg_type};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -62,8 +62,7 @@ impl PeerDiscovery {
     /// * `PeerDiscovery` - New discovery service instance with system identity
     pub fn with_defaults(udp: UdpTransport) -> Self {
         let username = whoami::username();
-        let hostname = whoami::fallible::hostname()
-            .unwrap_or_else(|_| "localhost".to_string());
+        let hostname = whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string());
 
         Self::new(udp, username, hostname)
     }
@@ -101,7 +100,11 @@ impl PeerDiscovery {
         // Try to broadcast, but handle macOS broadcast issues gracefully
         match self.udp.broadcast(&bytes) {
             Ok(()) => {
-                tracing::debug!("Online announcement sent: {}@{}", self.username, self.hostname);
+                tracing::debug!(
+                    "Online announcement sent: {}@{}",
+                    self.username,
+                    self.hostname
+                );
             }
             Err(e) => {
                 // On macOS, broadcast can fail with EADDRNOTAVAIL (error 49) due to
@@ -264,11 +267,7 @@ mod tests {
     #[test]
     fn test_peer_discovery_creation() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
 
         assert_eq!(discovery.username(), "TestUser");
         assert_eq!(discovery.hostname(), "test-host");
@@ -288,11 +287,7 @@ mod tests {
     #[test]
     fn test_announce_online() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
 
         // Should not fail
         let result = discovery.announce_online();
@@ -302,11 +297,7 @@ mod tests {
     #[test]
     fn test_create_message() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "Alice".to_string(),
-            "alice-pc".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "Alice".to_string(), "alice-pc".to_string());
 
         let msg = discovery.create_message(msg_type::IPMSG_SENDMSG, "Hello".to_string());
 
@@ -320,11 +311,7 @@ mod tests {
     #[test]
     fn test_packet_id_increment() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(
-            udp,
-            "Test".to_string(),
-            "test".to_string(),
-        );
+        let discovery = PeerDiscovery::new(udp, "Test".to_string(), "test".to_string());
 
         let id1 = discovery.next_packet_id();
         let id2 = discovery.next_packet_id();

@@ -104,12 +104,7 @@ impl TransferTask {
     }
 
     /// Create a new download task
-    pub fn new_download(
-        peer_ip: IpAddr,
-        file_name: String,
-        file_size: u64,
-        md5: String,
-    ) -> Self {
+    pub fn new_download(peer_ip: IpAddr, file_name: String, file_size: u64, md5: String) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),

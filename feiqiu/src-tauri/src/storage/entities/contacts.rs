@@ -12,39 +12,12 @@ pub struct Model {
     pub peer_id: Option<i32>,
 
     #[sea_orm(column_type = "Text")]
-    pub name: String,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub nickname: Option<String>,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub avatar: Option<String>,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub phone: Option<String>,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub email: Option<String>,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub department: Option<String>,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub position: Option<String>,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub notes: Option<String>,
-
-    #[sea_orm(column_type = "Boolean")]
-    pub is_favorite: bool,
-
-    #[sea_orm(column_type = "Text", nullable)]
-    pub pinyin: Option<String>,
-
-    #[sea_orm(column_type = "Boolean")]
     pub is_online: bool,
 
-    #[sea_orm(column_type = "BigInteger", nullable)]
+    #[sea_orm(column_type = "Text")]
+    pub peer_ip: Option<String>,
+
+    #[sea_orm(column_type = "BigInteger")]
     pub last_seen: Option<DateTime>,
 
     #[sea_orm(column_type = "BigInteger")]

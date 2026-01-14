@@ -1,10 +1,10 @@
 // Peer management module - node discovery, heartbeat, group management
 
 pub mod discovery;
-pub mod types;
-pub mod manager;
 pub mod heartbeat;
+pub mod manager;
+pub mod types;
 
 // Re-export commonly used types
-pub use types::PeerNode;
 pub use manager::PeerManager;
+pub use types::PeerNode;

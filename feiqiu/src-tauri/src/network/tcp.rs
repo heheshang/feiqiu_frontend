@@ -6,8 +6,8 @@
 // - Sending file data in chunks
 // - Receiving file data in chunks
 
-use crate::{NeoLanError, Result};
 use crate::config::AppConfig;
+use crate::{NeoLanError, Result};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
@@ -122,12 +122,10 @@ impl TcpTransport {
         })?;
 
         // Get file size
-        let file_size = file.metadata().map_err(|e| {
-            NeoLanError::FileTransfer(format!(
-                "Failed to get file metadata: {}",
-                e
-            ))
-        })?.len();
+        let file_size = file
+            .metadata()
+            .map_err(|e| NeoLanError::FileTransfer(format!("Failed to get file metadata: {}", e)))?
+            .len();
 
         tracing::info!(
             "Sending file {} ({} bytes) via TCP",
@@ -140,9 +138,9 @@ impl TcpTransport {
 
         // Read and send file in chunks
         loop {
-            let n = file.read(&mut buffer).map_err(|e| {
-                NeoLanError::FileTransfer(format!("Failed to read file: {}", e))
-            })?;
+            let n = file
+                .read(&mut buffer)
+                .map_err(|e| NeoLanError::FileTransfer(format!("Failed to read file: {}", e)))?;
 
             if n == 0 {
                 break; // EOF
@@ -169,14 +167,11 @@ impl TcpTransport {
         }
 
         // Flush stream
-        stream.flush().map_err(|e| {
-            NeoLanError::FileTransfer(format!("Failed to flush stream: {}", e))
-        })?;
+        stream
+            .flush()
+            .map_err(|e| NeoLanError::FileTransfer(format!("Failed to flush stream: {}", e)))?;
 
-        tracing::info!(
-            "File send complete: {} bytes sent",
-            total_sent
-        );
+        tracing::info!("File send complete: {} bytes sent", total_sent);
 
         Ok(total_sent)
     }
@@ -233,9 +228,8 @@ impl TcpTransport {
             }
 
             // Write chunk to file
-            file.write_all(&buffer[..n]).map_err(|e| {
-                NeoLanError::FileTransfer(format!("Failed to write file: {}", e))
-            })?;
+            file.write_all(&buffer[..n])
+                .map_err(|e| NeoLanError::FileTransfer(format!("Failed to write file: {}", e)))?;
 
             total_received += n as u64;
 
@@ -258,14 +252,10 @@ impl TcpTransport {
         }
 
         // Flush file
-        file.flush().map_err(|e| {
-            NeoLanError::FileTransfer(format!("Failed to flush file: {}", e))
-        })?;
+        file.flush()
+            .map_err(|e| NeoLanError::FileTransfer(format!("Failed to flush file: {}", e)))?;
 
-        tracing::info!(
-            "File receive complete: {} bytes received",
-            total_received
-        );
+        tracing::info!("File receive complete: {} bytes received", total_received);
 
         Ok(total_received)
     }
@@ -378,7 +368,13 @@ mod tests {
             let stream = listener.incoming().next().unwrap().unwrap();
 
             // Receive file
-            TcpTransport::receive_file::<fn(u64, u64)>(stream, &output_file_clone, expected_size, None).unwrap();
+            TcpTransport::receive_file::<fn(u64, u64)>(
+                stream,
+                &output_file_clone,
+                expected_size,
+                None,
+            )
+            .unwrap();
 
             println!("Server received file");
         });
@@ -422,7 +418,13 @@ mod tests {
         let output_file_clone = output_file.clone();
         thread::spawn(move || {
             let stream = listener.incoming().next().unwrap().unwrap();
-            TcpTransport::receive_file::<fn(u64, u64)>(stream, &output_file_clone, expected_size, None).unwrap();
+            TcpTransport::receive_file::<fn(u64, u64)>(
+                stream,
+                &output_file_clone,
+                expected_size,
+                None,
+            )
+            .unwrap();
         });
 
         // Connect and send
@@ -467,16 +469,26 @@ mod tests {
         let output_file_clone = output_file.clone();
         thread::spawn(move || {
             let stream = listener.incoming().next().unwrap().unwrap();
-            TcpTransport::receive_file::<fn(u64, u64)>(stream, &output_file_clone, expected_size, None).unwrap();
+            TcpTransport::receive_file::<fn(u64, u64)>(
+                stream,
+                &output_file_clone,
+                expected_size,
+                None,
+            )
+            .unwrap();
         });
 
         // Connect and send with progress
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
         let stream = TcpTransport::connect(addr).unwrap();
 
-        TcpTransport::send_file::<_>(stream, &test_file, Some(|sent, total| {
-            progress_updates.push((sent, total));
-        }))
+        TcpTransport::send_file::<_>(
+            stream,
+            &test_file,
+            Some(|sent, total| {
+                progress_updates.push((sent, total));
+            }),
+        )
         .unwrap();
 
         // Wait for completion

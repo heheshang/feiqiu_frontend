@@ -119,7 +119,9 @@ impl MessageRepository {
             .order_by_asc(messages::Column::SentAt)
             .all(&self.db)
             .await
-            .map_err(|e| NeoLanError::Storage(format!("Failed to find all offline messages: {}", e)))?;
+            .map_err(|e| {
+                NeoLanError::Storage(format!("Failed to find all offline messages: {}", e))
+            })?;
 
         Ok(result)
     }
@@ -138,7 +140,9 @@ impl MessageRepository {
         MessageEntity::update(active_model)
             .exec(&self.db)
             .await
-            .map_err(|e| NeoLanError::Storage(format!("Failed to mark message as delivered: {}", e)))?;
+            .map_err(|e| {
+                NeoLanError::Storage(format!("Failed to mark message as delivered: {}", e))
+            })?;
 
         Ok(())
     }
@@ -165,7 +169,9 @@ impl MessageRepository {
             MessageEntity::update(active_model)
                 .exec(&self.db)
                 .await
-                .map_err(|e| NeoLanError::Storage(format!("Failed to mark message as delivered: {}", e)))?;
+                .map_err(|e| {
+                    NeoLanError::Storage(format!("Failed to mark message as delivered: {}", e))
+                })?;
 
             count += 1;
         }
@@ -200,7 +206,9 @@ impl MessageRepository {
             )
             .exec(&self.db)
             .await
-            .map_err(|e| NeoLanError::Storage(format!("Failed to delete messages by peer: {}", e)))?;
+            .map_err(|e| {
+                NeoLanError::Storage(format!("Failed to delete messages by peer: {}", e))
+            })?;
 
         Ok(result.rows_affected)
     }
@@ -214,7 +222,10 @@ impl MessageRepository {
             .map_err(|e| NeoLanError::Storage(format!("Failed to delete message: {}", e)))?;
 
         if result.rows_affected == 0 {
-            return Err(NeoLanError::Storage(format!("Message not found: {}", msg_id)));
+            return Err(NeoLanError::Storage(format!(
+                "Message not found: {}",
+                msg_id
+            )));
         }
 
         Ok(())
@@ -248,7 +259,9 @@ impl MessageRepository {
             .filter(messages::Column::IsOffline.eq(true))
             .count(&self.db)
             .await
-            .map_err(|e| NeoLanError::Storage(format!("Failed to count offline messages: {}", e)))?;
+            .map_err(|e| {
+                NeoLanError::Storage(format!("Failed to count offline messages: {}", e))
+            })?;
 
         Ok(count)
     }
@@ -263,7 +276,9 @@ impl MessageRepository {
             )
             .count(&self.db)
             .await
-            .map_err(|e| NeoLanError::Storage(format!("Failed to count messages by peer: {}", e)))?;
+            .map_err(|e| {
+                NeoLanError::Storage(format!("Failed to count messages by peer: {}", e))
+            })?;
 
         Ok(count)
     }

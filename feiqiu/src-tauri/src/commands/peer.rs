@@ -172,9 +172,9 @@ pub fn get_online_peers(state: tauri::State<AppState>) -> Result<Vec<PeerDto>> {
 pub fn get_peer_by_ip(state: tauri::State<AppState>, ip: String) -> Result<Option<PeerDto>> {
     tracing::info!("get_peer_by_ip called with ip: {}", ip);
 
-    let ip_addr: IpAddr = ip.parse().map_err(|e| {
-        crate::NeoLanError::Validation(format!("Invalid IP address: {}", e))
-    })?;
+    let ip_addr: IpAddr = ip
+        .parse()
+        .map_err(|e| crate::NeoLanError::Validation(format!("Invalid IP address: {}", e)))?;
 
     let peer = state.get_peer(ip_addr);
     Ok(peer.map(|node| PeerDto::from_peer_node(&node)))

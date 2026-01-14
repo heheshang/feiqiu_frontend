@@ -1,8 +1,8 @@
 // File transfer module - chunking, resume, integrity checks
 
-pub mod types;
 pub mod manager;
 pub mod response;
+pub mod types;
 
 // Re-export commonly used types
 pub use manager::FileTransferManager;

@@ -168,7 +168,11 @@ impl Message {
     ///
     /// # Returns
     /// A new Message instance with data from the protocol message
-    pub fn from_protocol(proto_msg: &ProtocolMessage, sender: PeerInfo, receiver: PeerInfo) -> Self {
+    pub fn from_protocol(
+        proto_msg: &ProtocolMessage,
+        sender: PeerInfo,
+        receiver: PeerInfo,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             packet_id: proto_msg.packet_id.to_string(),
@@ -198,7 +202,12 @@ impl Message {
     /// * `sender_name` - Sender's username
     /// * `sender_host` - Sender's hostname
     /// * `options` - Protocol options (e.g., IPMSG_SENDCHECKOPT)
-    pub fn to_protocol_with_options(&self, sender_name: &str, sender_host: &str, options: u32) -> ProtocolMessage {
+    pub fn to_protocol_with_options(
+        &self,
+        sender_name: &str,
+        sender_host: &str,
+        options: u32,
+    ) -> ProtocolMessage {
         // Combine mode and options using make_command
         let mode = self.msg_type.to_protocol();
         let msg_type = crate::network::msg_type::make_command(mode, options);
@@ -228,7 +237,10 @@ impl Message {
 
     /// Check if this is a file transfer message
     pub fn is_file_transfer(&self) -> bool {
-        matches!(self.msg_type, MessageType::FileRequest | MessageType::FileResponse)
+        matches!(
+            self.msg_type,
+            MessageType::FileRequest | MessageType::FileResponse
+        )
     }
 
     /// Check if message is empty
@@ -293,7 +305,10 @@ mod tests {
             MessageType::FileResponse.to_protocol(),
             msg_type::IPMSG_RELEASEFILES
         );
-        assert_eq!(MessageType::Presence.to_protocol(), msg_type::IPMSG_BR_ENTRY);
+        assert_eq!(
+            MessageType::Presence.to_protocol(),
+            msg_type::IPMSG_BR_ENTRY
+        );
         assert_eq!(
             MessageType::ReadReceipt.to_protocol(),
             msg_type::IPMSG_READMSG
@@ -379,7 +394,8 @@ mod tests {
         let sender = create_test_sender();
         let receiver = create_test_receiver();
 
-        let msg_with_content = Message::new_text(sender.clone(), receiver.clone(), "Hi".to_string());
+        let msg_with_content =
+            Message::new_text(sender.clone(), receiver.clone(), "Hi".to_string());
         assert!(!msg_with_content.is_empty());
 
         let msg_whitespace = Message::new_text(sender, receiver, "   ".to_string());

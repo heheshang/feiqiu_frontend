@@ -28,7 +28,9 @@ fn get_app_data_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         if let Ok(home) = env::var("HOME") {
-            return PathBuf::from(home).join("Library").join("Application Support");
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Application Support");
         }
     }
 
@@ -66,9 +68,8 @@ pub async fn establish_connection() -> Result<DatabaseConnection, String> {
     let db_dir = base_dir.join("neolan");
 
     // 2. 创建数据库目录（如果不存在）
-    fs::create_dir_all(&db_dir).map_err(|e| {
-        format!("Failed to create database directory: {}", e)
-    })?;
+    fs::create_dir_all(&db_dir)
+        .map_err(|e| format!("Failed to create database directory: {}", e))?;
 
     tracing::info!("Database directory: {}", db_dir.display());
 

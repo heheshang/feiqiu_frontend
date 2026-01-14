@@ -1,6 +1,6 @@
 // File transfer response handler - handles incoming file transfer requests
 use crate::network::{
-    FileSendRequest, FileSendResponse, ProtocolMessage, PROTOCOL_VERSION, msg_type,
+    msg_type, FileSendRequest, FileSendResponse, ProtocolMessage, PROTOCOL_VERSION,
 };
 use crate::state::app_state::TauriEvent;
 use crate::{NeoLanError, Result};
@@ -62,11 +62,7 @@ impl FileTransferResponse {
     /// * `manager` - File transfer manager
     /// * `username` - Local username
     /// * `hostname` - Local hostname
-    pub fn new(
-        manager: Arc<FileTransferManager>,
-        username: String,
-        hostname: String,
-    ) -> Self {
+    pub fn new(manager: Arc<FileTransferManager>, username: String, hostname: String) -> Self {
         Self {
             manager,
             username,
@@ -101,9 +97,7 @@ impl FileTransferResponse {
 
         // Parse FileSendRequest from JSON content
         let file_request: FileSendRequest = serde_json::from_str(&proto_msg.content)
-            .map_err(|e| {
-                NeoLanError::Protocol(format!("Failed to parse file request: {}", e))
-            })?;
+            .map_err(|e| NeoLanError::Protocol(format!("Failed to parse file request: {}", e)))?;
 
         tracing::info!(
             "File request: name={}, size={}, md5={}",
@@ -150,8 +144,9 @@ impl FileTransferResponse {
             port: if accept { tcp_port } else { None },
         };
 
-        let content = serde_json::to_string(&response)
-            .map_err(|e| NeoLanError::FileTransfer(format!("Failed to serialize response: {}", e)))?;
+        let content = serde_json::to_string(&response).map_err(|e| {
+            NeoLanError::FileTransfer(format!("Failed to serialize response: {}", e))
+        })?;
 
         // Create protocol message
         let packet_id = std::time::SystemTime::now()
@@ -211,7 +206,11 @@ impl FileTransferResponse {
         // Add to manager
         let _ = self.manager.add_task(task);
 
-        tracing::info!("Created download task: {} for file: {}", task_id, request.file_name);
+        tracing::info!(
+            "Created download task: {} for file: {}",
+            task_id,
+            request.file_name
+        );
 
         task_id
     }
@@ -238,8 +237,8 @@ impl FileTransferResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::TransferDirection;
+    use super::*;
     use std::net::Ipv4Addr;
 
     #[test]
@@ -249,15 +248,12 @@ mod tests {
             udp.clone(),
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         ));
 
-        let handler = FileTransferResponse::new(
-            manager,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let handler =
+            FileTransferResponse::new(manager, "TestUser".to_string(), "test-host".to_string());
 
         // Create a file request
         let file_request = FileSendRequest {
@@ -295,15 +291,12 @@ mod tests {
             udp.clone(),
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         ));
 
-        let handler = FileTransferResponse::new(
-            manager,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let handler =
+            FileTransferResponse::new(manager, "TestUser".to_string(), "test-host".to_string());
 
         let request = PendingRequest {
             id: Uuid::new_v4(),
@@ -329,15 +322,12 @@ mod tests {
             udp.clone(),
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         ));
 
-        let handler = FileTransferResponse::new(
-            manager,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let handler =
+            FileTransferResponse::new(manager, "TestUser".to_string(), "test-host".to_string());
 
         let request = PendingRequest {
             id: Uuid::new_v4(),
@@ -363,15 +353,12 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         ));
 
-        let handler = FileTransferResponse::new(
-            manager,
-            "TestUser".to_string(),
-            "test-host".to_string(),
-        );
+        let handler =
+            FileTransferResponse::new(manager, "TestUser".to_string(), "test-host".to_string());
 
         let request = PendingRequest {
             id: Uuid::new_v4(),
@@ -413,8 +400,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
-            8000,  // tcp_port_start
-            9000,  // tcp_port_end
+            8000, // tcp_port_start
+            9000, // tcp_port_end
         ));
 
         let handler = FileTransferResponse::new(
