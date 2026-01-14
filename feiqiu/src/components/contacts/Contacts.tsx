@@ -15,7 +15,12 @@ import { cn } from '@/lib/utils'
 
 type Tab = 'contacts' | 'groups'
 
-export function Contacts() {
+interface ContactsProps {
+  /** Callback when user starts a conversation from contacts */
+  onStartConversation?: (contactId: string) => void
+}
+
+export function Contacts({ onStartConversation }: ContactsProps) {
   const {
     contacts,
     groups,
@@ -86,8 +91,10 @@ export function Contacts() {
 
   // Message handler
   const handleSendMessage = (contact: Contact) => {
-    // TODO: Implement navigate to chat with this contact
-    console.log('Send message to:', contact)
+    // Start conversation with this contact
+    if (contact.peerId && onStartConversation) {
+      onStartConversation(contact.peerId.toString())
+    }
     setShowDetailDialog(false)
   }
 

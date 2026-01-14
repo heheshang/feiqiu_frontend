@@ -1,4 +1,4 @@
-import { LucideIcon, MessageSquare, Users, Building2, User } from 'lucide-react'
+import { LucideIcon, MessageSquare, Users, Building2, User, FileText } from 'lucide-react'
 import { NavTab } from '../../lib/types/shell'
 import { cn } from '../../lib/utils'
 
@@ -17,17 +17,22 @@ const navItems = [
   {
     id: 'chat' as NavTab,
     icon: MessageSquare,
-    label: 'Chat'
+    label: '会话'
   },
   {
     id: 'contacts' as NavTab,
     icon: Users,
-    label: 'Contacts'
+    label: '通讯录'
+  },
+  {
+    id: 'files' as NavTab,
+    icon: FileText,
+    label: '文件'
   },
   {
     id: 'organization' as NavTab,
     icon: Building2,
-    label: 'Organization'
+    label: '组织'
   }
 ]
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { AppShell } from './components/shell'
 import { BasicSettings } from './components/basic-settings'
 import { Messaging } from './components/messaging'
@@ -13,12 +13,17 @@ import { Conversation, User as MessagingUser } from './lib/types/messaging'
 import { FileTransfer as FileTransferType, User as FTUser } from './lib/types/file-transfer'
 import { Screenshot, User as ColUser } from './lib/types/collaboration'
 import { Department, User as OrgUser } from './lib/types/organization'
+import { contactsApi } from './lib/api'
+import { onEvent } from './lib/events'
+import type { MessageReceivedEvent } from './lib/events'
+import type { CreateContactInput } from './lib/types/contacts'
 
 // New hooks for real data
 import { usePeers } from './hooks/usePeers'
 import { useMessages } from './hooks/useMessages'
 import { useConfig } from './hooks/useConfig'
 import { useFileTransfers } from './hooks/useFileTransfers'
+import { useContacts } from './hooks/useContacts'
 import { toMessagingUser, toSettingsUser, type Peer, type Message, type Config } from './lib/converters'
 
 interface AppUser extends SettingsUser {
@@ -39,7 +44,7 @@ function toMessagingMessage(msg: Message): import('./lib/types/messaging').Messa
   }
 }
 
-// Convert peers to conversations
+// Convert peers to conversations (only show peers with message history)
 function peersToConversations(peers: Peer[], myIp: string, messages: Message[]): Conversation[] {
   // Group messages by peer IP
   const messagesByPeer = new Map<string, Message[]>()
@@ -51,28 +56,30 @@ function peersToConversations(peers: Peer[], myIp: string, messages: Message[]):
     messagesByPeer.get(peerIp)!.push(msg)
   })
 
-  // Create conversations from peers
-  return peers.map(peer => {
-    const peerMessages = messagesByPeer.get(peer.ip) || []
-    const lastMessage = peerMessages[peerMessages.length - 1]
+  // Create conversations from peers (only those with messages)
+  return peers
+    .filter(peer => messagesByPeer.has(peer.ip)) // Only include peers with message history
+    .map(peer => {
+      const peerMessages = messagesByPeer.get(peer.ip) || []
+      const lastMessage = peerMessages[peerMessages.length - 1]
 
-    return {
-      id: peer.ip,
-      type: 'single' as const,
-      pinned: false,
-      unreadCount: peerMessages.filter(m => m.status === 'unread').length,
-      lastMessage: lastMessage ? {
-        id: lastMessage.id,
-        content: lastMessage.content,
-        type: lastMessage.type,
-        timestamp: lastMessage.timestamp,
-        senderId: lastMessage.senderId,
-        senderName: lastMessage.senderName,
-      } : undefined,
-      participant: toMessagingUser(peer),
-      messages: peerMessages.map(toMessagingMessage),
-    }
-  })
+      return {
+        id: peer.ip,
+        type: 'single' as const,
+        pinned: false,
+        unreadCount: peerMessages.filter(m => m.status === 'unread').length,
+        lastMessage: lastMessage ? {
+          id: lastMessage.id,
+          content: lastMessage.content,
+          type: lastMessage.type,
+          timestamp: lastMessage.timestamp,
+          senderId: lastMessage.senderId,
+          senderName: lastMessage.senderName,
+        } : undefined,
+        participant: toMessagingUser(peer),
+        messages: peerMessages.map(toMessagingMessage),
+      }
+    })
 }
 
 function App() {
@@ -86,6 +93,7 @@ function App() {
   const { messages, sendMessage: sendBackendMessage } = useMessages({ enabled: true })
   const { config, updateConfig } = useConfig({ enabled: true })
   const { transfers, acceptTransfer, rejectTransfer, cancelTransfer } = useFileTransfers({ enabled: true })
+  const { contacts } = useContacts({ enabled: true, refreshInterval: 0 })
 
   // Local state
   const [user, setUser] = useState<AppUser>({
@@ -99,6 +107,7 @@ function App() {
   })
 
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [manuallyAddedConversations, setManuallyAddedConversations] = useState<Set<string>>(new Set())
 
   // Update user when config changes
   useEffect(() => {
@@ -113,6 +122,44 @@ function App() {
     }
   }, [config])
 
+  // Auto-add peer to contacts when receiving message from new peer
+  useEffect(() => {
+    const messageReceivedUnsub = onEvent<MessageReceivedEvent>('message_received', async (event) => {
+      const senderIp = event.message.sender_ip
+      const senderName = event.message.sender_name
+
+      // Check if sender is already in contacts by name or ip
+      const existingContact = contacts.find(c =>
+        c.name === senderName || c.name.includes(senderIp)
+      )
+
+      if (!existingContact) {
+        // Find the peer to get additional info
+        const peer = peers.find(p => p.ip === senderIp)
+        if (peer) {
+          try {
+            // Create new contact from peer (note: peer.id is string IP address, don't use as peerId)
+            const newContact: CreateContactInput = {
+              name: senderName,
+              nickname: peer.nickname || undefined,
+              avatar: peer.avatar || undefined,
+              // peerId not set because it requires database ID, not IP string
+            }
+
+            await contactsApi.createContact(newContact)
+            console.log(`[Auto-add] Added contact: ${senderName} (${senderIp})`)
+          } catch (error) {
+            console.error(`[Auto-add] Failed to add contact: ${senderName}`, error)
+          }
+        }
+      }
+    })
+
+    return () => {
+      messageReceivedUnsub.remove()
+    }
+  }, [contacts, peers])
+
   // Auto-select first conversation on mount
   useEffect(() => {
     if (peers.length > 0 && !activeConversationId) {
@@ -123,8 +170,31 @@ function App() {
   // Derive conversations from peers and messages
   const conversations = useMemo(() => {
     const myIp = config?.bindIp || '0.0.0.0'
-    return peersToConversations(peers, myIp, messages)
-  }, [peers, messages, config?.bindIp])
+    const peerConversations = peersToConversations(peers, myIp, messages)
+
+    // Add manually added conversations from contacts
+    const manuallyAddedConversationsList: Conversation[] = []
+    for (const conversationId of manuallyAddedConversations) {
+      const peer = peers.find(p => p.ip === conversationId)
+      if (peer) {
+        manuallyAddedConversationsList.push({
+          id: peer.ip,
+          type: 'single',
+          pinned: false,
+          unreadCount: 0,
+          lastMessage: undefined,
+          participant: toMessagingUser(peer),
+          messages: [],
+        })
+      }
+    }
+
+    // Merge conversations (avoid duplicates)
+    const existingIds = new Set(peerConversations.map(c => c.id))
+    const uniqueManualConversations = manuallyAddedConversationsList.filter(conv => !existingIds.has(conv.id))
+
+    return [...peerConversations, ...uniqueManualConversations]
+  }, [peers, messages, config?.bindIp, manuallyAddedConversations])
 
   // Current user for messaging
   const currentUser: MessagingUser = useMemo(() => ({
@@ -187,6 +257,15 @@ function App() {
 
   const handleSendMessage = async (conversationId: string, content: string) => {
     await sendBackendMessage(content, conversationId)
+  }
+
+  const handleStartConversation = (contactId: string) => {
+    // Add to manually added conversations
+    setManuallyAddedConversations(prev => new Set([...prev, contactId]))
+    // Switch to chat tab
+    setActiveTab('chat')
+    // Select the conversation
+    setActiveConversationId(contactId)
   }
 
   const handleSendImage = (conversationId: string, file: File) => {
@@ -267,7 +346,7 @@ function App() {
           />
         )
       case 'contacts':
-        return <Contacts />
+        return <Contacts onStartConversation={handleStartConversation} />
       case 'files':
         return (
           <FileTransfer
