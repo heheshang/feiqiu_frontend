@@ -26,6 +26,10 @@ pub struct FileTransferManager {
 
     /// Local hostname
     hostname: String,
+
+    /// TCP port range for file transfers
+    tcp_port_start: u16,
+    tcp_port_end: u16,
 }
 
 impl FileTransferManager {
@@ -35,6 +39,8 @@ impl FileTransferManager {
     /// * `udp` - UDP transport for sending requests
     /// * `username` - Local username
     /// * `hostname` - Local hostname
+    /// * `tcp_port_start` - Start of TCP port range for file transfers
+    /// * `tcp_port_end` - End of TCP port range for file transfers
     ///
     /// # Returns
     /// * `Ok(FileTransferManager)` - Successfully created manager
@@ -43,15 +49,32 @@ impl FileTransferManager {
         udp: Arc<UdpTransport>,
         username: String,
         hostname: String,
+        tcp_port_start: u16,
+        tcp_port_end: u16,
     ) -> Self {
-        tracing::info!("Creating FileTransferManager for user: {}", username);
+        tracing::info!(
+            "Creating FileTransferManager for user: {} with TCP port range: {}-{}",
+            username,
+            tcp_port_start,
+            tcp_port_end
+        );
 
         Self {
             udp,
             tasks: Arc::new(Mutex::new(Vec::new())),
             username,
             hostname,
+            tcp_port_start,
+            tcp_port_end,
         }
+    }
+
+    /// Get the next available TCP port for file transfer
+    ///
+    /// Returns the starting port of the configured range.
+    /// In a future implementation, this could track used ports and find an available one.
+    pub fn get_next_tcp_port(&self) -> u16 {
+        self.tcp_port_start
     }
 
     /// Send a file transfer request to a peer
@@ -133,7 +156,7 @@ impl FileTransferManager {
                 NeoLanError::FileTransfer(format!("Failed to serialize message: {}", e))
             })?;
 
-        let addr = SocketAddr::new(target, 2425); // IPMsg default port
+        let addr = SocketAddr::new(target, 2425); // IPMsg standard port for sending to peers
         self.udp.send_to(&msg_bytes, addr)?;
 
         tracing::info!(
@@ -323,6 +346,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         );
 
         // Create a test file
@@ -350,6 +375,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         );
 
         // Create a test task manually
@@ -400,6 +427,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         );
 
         // Add multiple tasks with different statuses

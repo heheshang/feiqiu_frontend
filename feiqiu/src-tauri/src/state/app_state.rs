@@ -2,7 +2,7 @@
 //
 // Provides a centralized state management structure for the Tauri application.
 
-use crate::config::AppConfig;
+use crate::config::{app::ConfigRepository, AppConfig};
 use crate::modules::message::MessageHandler;
 use crate::modules::peer::{PeerManager, PeerNode};
 use crate::storage::database::establish_connection;
@@ -165,6 +165,9 @@ pub struct AppState {
     /// Contact repository
     contact_repo: Arc<Mutex<Option<ContactRepository>>>,
 
+    /// Config repository
+    config_repo: Arc<Mutex<Option<ConfigRepository>>>,
+
     /// Peer manager (when initialized)
     peer_manager: Arc<Mutex<Option<PeerManager>>>,
 
@@ -189,6 +192,7 @@ impl AppState {
             message_repo: Arc::new(Mutex::new(None)),
             peer_repo: Arc::new(Mutex::new(None)),
             contact_repo: Arc::new(Mutex::new(None)),
+            config_repo: Arc::new(Mutex::new(None)),
             peer_manager: Arc::new(Mutex::new(None)),
             message_handler: Arc::new(Mutex::new(None)),
             config: Arc::new(Mutex::new(config)),
@@ -198,6 +202,33 @@ impl AppState {
     }
 
     // ==================== Database Methods ====================
+
+    /// Set an already-established database connection
+    ///
+    /// This is useful when you need to establish the connection first
+    /// (e.g., to load config) before creating the AppState.
+    ///
+    /// # Arguments
+    /// * `db` - The established database connection
+    pub fn set_database(&self, db: &DatabaseConnection) {
+        tracing::info!("Setting database connection in AppState...");
+
+        // Store the database connection
+        *self.db.lock().unwrap() = Some(db.clone());
+
+        // Create repositories
+        let message_repo = MessageRepository::new(db.clone());
+        let peer_repo = PeerRepository::new(db.clone());
+        let contact_repo = ContactRepository::new(db.clone());
+        let config_repo = ConfigRepository::new(db.clone());
+
+        *self.message_repo.lock().unwrap() = Some(message_repo);
+        *self.peer_repo.lock().unwrap() = Some(peer_repo);
+        *self.contact_repo.lock().unwrap() = Some(contact_repo);
+        *self.config_repo.lock().unwrap() = Some(config_repo);
+
+        tracing::info!("Database repositories initialized successfully");
+    }
 
     /// Initialize the database connection
     ///
@@ -217,10 +248,12 @@ impl AppState {
         let message_repo = MessageRepository::new(db.clone());
         let peer_repo = PeerRepository::new(db.clone());
         let contact_repo = ContactRepository::new(db.clone());
+        let config_repo = ConfigRepository::new(db.clone());
 
         *self.message_repo.lock().unwrap() = Some(message_repo);
         *self.peer_repo.lock().unwrap() = Some(peer_repo);
         *self.contact_repo.lock().unwrap() = Some(contact_repo);
+        *self.config_repo.lock().unwrap() = Some(config_repo);
 
         tracing::info!("Database initialized successfully");
 
@@ -246,6 +279,13 @@ impl AppState {
     /// Returns None if database hasn't been initialized.
     pub fn get_contact_repo(&self) -> Option<ContactRepository> {
         self.contact_repo.lock().unwrap().as_ref().cloned()
+    }
+
+    /// Get the config repository
+    ///
+    /// Returns None if database hasn't been initialized.
+    pub fn get_config_repo(&self) -> Option<ConfigRepository> {
+        self.config_repo.lock().unwrap().as_ref().cloned()
     }
 
     /// Check if database is initialized
@@ -308,19 +348,56 @@ impl AppState {
     }
 
     /// Set the configuration
+    ///
+    /// Updates the in-memory configuration and persists it to the database asynchronously.
     pub fn set_config(&self, config: AppConfig) {
+        let repo = self.get_config_repo();
+        let config_clone = config.clone();
+
+        // Persist to database asynchronously in a background thread
+        if let Some(repo) = repo {
+            std::thread::spawn(move || {
+                // Create a new runtime for this thread
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    if let Err(e) = repo.save_app_config(&config_clone).await {
+                        tracing::error!("Failed to save config: {}", e);
+                    }
+                });
+            });
+        }
+
+        // Update in-memory config
         *self.config.lock().unwrap() = config;
         self.emit_event(super::events::AppEvent::ConfigChanged);
     }
 
     /// Update configuration fields
+    ///
+    /// Updates the in-memory configuration and persists it to the database asynchronously.
     pub fn update_config<F>(&self, updater: F) -> Result<()>
     where
         F: FnOnce(&mut AppConfig),
     {
         let mut config = self.config.lock().unwrap();
         updater(&mut config);
+        let config_clone = config.clone();
         drop(config);
+
+        // Persist to database asynchronously in a background thread
+        let repo = self.get_config_repo();
+        if let Some(repo) = repo {
+            std::thread::spawn(move || {
+                // Create a new runtime for this thread
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    if let Err(e) = repo.save_app_config(&config_clone).await {
+                        tracing::error!("Failed to save config: {}", e);
+                    }
+                });
+            });
+        }
+
         self.emit_event(super::events::AppEvent::ConfigChanged);
         Ok(())
     }
@@ -332,6 +409,29 @@ impl AppState {
         let mut pm = self.peer_manager.lock().unwrap();
         *pm = Some(peer_manager);
         self.emit_event(super::events::AppEvent::Initialized);
+    }
+
+    /// Initialize configuration from database
+    ///
+    /// This should be called once during application startup after database initialization.
+    /// Loads configuration from the database, falling back to defaults if not found.
+    pub async fn init_config(&self) -> Result<()> {
+        if let Some(repo) = self.get_config_repo() {
+            tracing::info!("Loading configuration from database...");
+            match repo.load_app_config().await {
+                Ok(config) => {
+                    *self.config.lock().unwrap() = config;
+                    tracing::info!("Configuration loaded successfully");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load config from DB: {}, using defaults", e);
+                    // Use the default config that was already set in `new()`
+                }
+            }
+        } else {
+            tracing::warn!("Config repository not initialized, using in-memory config");
+        }
+        Ok(())
     }
 
     /// Get peer list (all peers)

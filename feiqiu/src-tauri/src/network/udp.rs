@@ -146,13 +146,16 @@ impl UdpTransport {
     /// # Ok::<(), NeoLanError>(())
     /// ```
     pub fn broadcast(&self, data: &[u8]) -> Result<()> {
-        let addr: SocketAddr = format!("{}:{}", BROADCAST_ADDR, DEFAULT_UDP_PORT)
+        // Use the actual bound port for broadcast target
+        // This allows discovery to work with custom UDP port configurations
+        let addr: SocketAddr = format!("{}:{}", BROADCAST_ADDR, self.port)
             .parse()
             .map_err(|_| NeoLanError::Network(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Invalid broadcast address",
             )))?;
 
+        tracing::debug!("Broadcasting to {}", addr);
         self.send_to(data, addr)
     }
 

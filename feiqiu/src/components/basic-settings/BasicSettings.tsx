@@ -1,15 +1,96 @@
 'use client'
 
-import { useState } from 'react'
-import { BasicSettingsProps, UserStatus } from '../../lib/types/basic-settings'
+import { useState, useEffect } from 'react'
+import { BasicSettingsProps, UserStatus, NetworkConfig, User, NetworkStatus } from '../../lib/types/basic-settings'
 import { NetworkStatusCard } from './NetworkStatusCard'
 import { cn } from '../../lib/utils'
 import { Upload, AlertTriangle } from 'lucide-react'
+import { getConfig, setConfig } from '../../lib/api/config'
+import type { Config } from '../../lib/converters'
+
+// Default values for when config loading fails
+const defaultUser: User = {
+  id: 'local',
+  name: '',
+  signature: '',
+  status: 'online',
+  department: '',
+}
+
+const defaultNetworkConfig: NetworkConfig = {
+  id: 'network',
+  udpPort: 2425,
+  bindAddress: '0.0.0.0',
+  broadcastAddress: '255.255.255.255',
+  maxRetries: 3,
+  timeout: 5000,
+}
+
+const defaultNetworkStatus: NetworkStatus = {
+  ipAddress: '未知',
+  macAddress: '',
+  connectionStatus: 'disconnected',
+  listeningPort: 0,
+  lastSeen: new Date().toISOString(),
+  onlineUsers: 0,
+}
+
+// Helper function to validate IPv4 address
+function isValidIPv4(ip: string): boolean {
+  if (ip === '0.0.0.0') return true
+  const regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+  const match = ip.match(regex)
+  if (!match) return false
+  return match.slice(1, 5).every((octet) => {
+    const num = parseInt(octet, 10)
+    return num >= 0 && num <= 255
+  })
+}
+
+// Convert backend Config to UI User type
+function configToUser(config: Config): User {
+  return {
+    id: 'local',
+    name: config.username || '',
+    avatarUrl: config.avatar || undefined,
+    signature: '', // Not stored in backend config yet
+    status: (config.status as UserStatus) || 'online',
+    department: '', // Not stored in backend config yet
+  }
+}
+
+// Convert backend Config to UI NetworkConfig type
+function configToNetworkConfig(config: Config): NetworkConfig {
+  return {
+    id: 'network',
+    udpPort: config.udpPort || 2425,
+    bindAddress: config.bindIp || '0.0.0.0',
+    broadcastAddress: '255.255.255.255', // Default, not in backend yet
+    maxRetries: 3, // Default, not in backend yet
+    timeout: 5000, // Default, not in backend yet
+  }
+}
+
+// Convert UI User to partial backend Config
+function userToConfig(user: User): Partial<Config> {
+  return {
+    username: user.name,
+    status: user.status,
+  }
+}
+
+// Convert UI NetworkConfig to partial backend Config
+function networkConfigToConfig(networkConfig: NetworkConfig): Partial<Config> {
+  return {
+    udpPort: networkConfig.udpPort,
+    bindIp: networkConfig.bindAddress,
+  }
+}
 
 export function BasicSettings({
-  user,
-  networkConfig,
-  networkStatus,
+  user: initialUser = defaultUser,
+  networkConfig: initialNetworkConfig = defaultNetworkConfig,
+  networkStatus: initialNetworkStatus = defaultNetworkStatus,
   activeTab = 'profile',
   onTabChange,
   onUpdateUser,
@@ -18,10 +99,50 @@ export function BasicSettings({
   onSaveNetworkConfig,
   onCancelNetworkConfig,
 }: BasicSettingsProps) {
-  const [editedUser, setEditedUser] = useState(user)
-  const [editedConfig, setEditedConfig] = useState(networkConfig)
+  const [editedUser, setEditedUser] = useState<User>(initialUser)
+  const [editedConfig, setEditedConfig] = useState<NetworkConfig>(initialNetworkConfig)
+  const [currentNetworkStatus, setCurrentNetworkStatus] = useState<NetworkStatus>(initialNetworkStatus)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showAvatarUpload, setShowAvatarUpload] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [networkConfigChanged, setNetworkConfigChanged] = useState(false)
+
+  // Load config on component mount
+  useEffect(() => {
+    async function loadConfig() {
+      try {
+        setIsLoading(true)
+        const config = await getConfig()
+        setEditedUser(configToUser(config))
+        setEditedConfig(configToNetworkConfig(config))
+        // Update network status with loaded config
+        setCurrentNetworkStatus({
+          ...initialNetworkStatus,
+          ipAddress: config.bindIp || '未知',
+          listeningPort: config.udpPort || 0,
+        })
+      } catch (error) {
+        console.error('Failed to load config:', error)
+        alert('加载配置失败，使用默认值')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadConfig()
+  }, [])
+
+  // Reload props when they change
+  useEffect(() => {
+    if (initialUser.name) {
+      setEditedUser(initialUser)
+    }
+  }, [initialUser])
+
+  useEffect(() => {
+    if (initialNetworkConfig.udpPort) {
+      setEditedConfig(initialNetworkConfig)
+    }
+  }, [initialNetworkConfig])
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -39,23 +160,84 @@ export function BasicSettings({
     }
   }
 
-  const handleSaveUser = () => {
-    onUpdateUser?.(editedUser)
-    setHasUnsavedChanges(false)
+  const handleSaveUser = async () => {
+    // Validate nickname
+    if (!editedUser.name.trim()) {
+      alert('昵称不能为空')
+      return
+    }
+    if (editedUser.name.length > 50) {
+      alert('昵称不能超过 50 个字符')
+      return
+    }
+
+    try {
+      // Get current config and merge with user changes
+      const currentConfig = await getConfig()
+      const configUpdate = {
+        ...currentConfig,
+        username: editedUser.name,
+        status: editedUser.status,
+      }
+      await setConfig(configUpdate)
+      onUpdateUser?.(editedUser)
+      setHasUnsavedChanges(false)
+      alert('保存成功')
+      // Call optional status change callback
+      onStatusChange?.(editedUser.status)
+    } catch (error) {
+      console.error('Failed to save user config:', error)
+      alert('保存失败，请重试')
+    }
   }
 
-  const handleSaveNetwork = () => {
+  const handleSaveNetwork = async () => {
+    // Validate UDP port
     if (editedConfig.udpPort < 1024 || editedConfig.udpPort > 65535) {
       alert('UDP 端口必须在 1024-65535 之间')
       return
     }
-    onSaveNetworkConfig?.(editedConfig)
-    setHasUnsavedChanges(false)
+
+    // Validate bind address
+    if (!isValidIPv4(editedConfig.bindAddress)) {
+      alert('请输入有效的 IP 地址')
+      return
+    }
+
+    try {
+      // Get current config and merge with network changes
+      const currentConfig = await getConfig()
+      const configUpdate = {
+        ...currentConfig,
+        udpPort: editedConfig.udpPort,
+        bindIp: editedConfig.bindAddress,
+      }
+      await setConfig(configUpdate)
+      onSaveNetworkConfig?.(editedConfig)
+      setHasUnsavedChanges(false)
+      setNetworkConfigChanged(true)
+      alert('保存成功')
+      // Reset the network config changed flag after 5 seconds
+      setTimeout(() => setNetworkConfigChanged(false), 5000)
+    } catch (error) {
+      console.error('Failed to save network config:', error)
+      alert('保存失败，请重试')
+    }
   }
 
   const handleCancelNetwork = () => {
-    setEditedConfig(networkConfig)
+    // Reload original config
+    async function reloadConfig() {
+      try {
+        const config = await getConfig()
+        setEditedConfig(configToNetworkConfig(config))
+      } catch (error) {
+        console.error('Failed to reload config:', error)
+      }
+    }
+    reloadConfig()
     setHasUnsavedChanges(false)
+    setNetworkConfigChanged(false)
     onCancelNetworkConfig?.()
   }
 
@@ -107,9 +289,13 @@ export function BasicSettings({
 
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto px-6 py-8">
-          {activeTab === 'profile' && (
+          {isLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="text-slate-600 dark:text-slate-400">加载配置中...</div>
+            </div>
+          ) : activeTab === 'profile' && (
             <div className="space-y-6">
-              <NetworkStatusCard networkStatus={networkStatus} />
+              <NetworkStatusCard networkStatus={currentNetworkStatus} />
 
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <div className="p-6 space-y-6">
@@ -118,15 +304,15 @@ export function BasicSettings({
                       头像
                     </label>
                     <div className="flex items-center gap-4">
-                      {user.avatarUrl ? (
+                      {editedUser.avatarUrl ? (
                         <img
-                          src={user.avatarUrl}
-                          alt={user.name}
+                          src={editedUser.avatarUrl}
+                          alt={editedUser.name}
                           className="w-20 h-20 rounded-full object-cover ring-2 ring-slate-200 dark:ring-slate-700"
                         />
                       ) : (
                         <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-2xl font-semibold">
-                          {user.name.charAt(0)}
+                          {editedUser.name.charAt(0)}
                         </div>
                       )}
                       <div>
@@ -196,8 +382,8 @@ export function BasicSettings({
                         <button
                           key={status.value}
                           onClick={() => {
-                            onStatusChange?.(status.value)
                             setEditedUser({ ...editedUser, status: status.value })
+                            setHasUnsavedChanges(true)
                           }}
                           className={cn(
                             'inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all',
@@ -218,7 +404,7 @@ export function BasicSettings({
                       所属部门
                     </label>
                     <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-400">
-                      {user.department}
+                      {editedUser.department}
                     </div>
                   </div>
                 </div>
@@ -226,8 +412,14 @@ export function BasicSettings({
                 {hasUnsavedChanges && (
                   <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
                     <button
-                      onClick={() => {
-                        setEditedUser(user)
+                      onClick={async () => {
+                        // Reload original config
+                        try {
+                          const config = await getConfig()
+                          setEditedUser(configToUser(config))
+                        } catch (error) {
+                          console.error('Failed to reload user config:', error)
+                        }
                         setHasUnsavedChanges(false)
                       }}
                       className="px-6 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 font-medium transition-colors"
@@ -378,7 +570,7 @@ export function BasicSettings({
                 )}
               </div>
 
-              {hasUnsavedChanges && (
+              {networkConfigChanged && (
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex gap-3">
                   <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                   <div>

@@ -16,6 +16,8 @@ use crate::network::UdpTransport;
 use crate::modules::peer::{PeerManager, discovery::PeerDiscovery};
 use crate::modules::message::handler::MessageHandler;
 use crate::modules::peer::manager::MessageRouteRequest;
+use crate::config::app::{AppConfig, ConfigRepository};
+use crate::storage::database::establish_connection;
 use std::thread;
 use std::time::Duration;
 
@@ -63,11 +65,38 @@ pub fn run() {
     // Log application startup
     tracing::info!("NeoLan starting...");
 
-    // Create default application configuration
-    let default_config = config::AppConfig::default();
+    // Step 1: Establish database connection first (before creating AppState)
+    tracing::info!("Establishing database connection...");
+    let db = match tauri::async_runtime::block_on(establish_connection()) {
+        Ok(db) => {
+            tracing::info!("Database connection established");
+            db
+        }
+        Err(e) => {
+            tracing::error!("Failed to establish database connection: {}", e);
+            panic!("Database connection failed: {}", e);
+        }
+    };
 
-    // Initialize application state
-    let app_state = AppState::new(default_config);
+    // Step 2: Load config from database
+    tracing::info!("Loading configuration from database...");
+    let config_repo = ConfigRepository::new(db.clone());
+    let config = match tauri::async_runtime::block_on(config_repo.load_app_config()) {
+        Ok(cfg) => {
+            tracing::info!("Configuration loaded successfully from database");
+            cfg
+        }
+        Err(e) => {
+            tracing::warn!("Failed to load config from database: {}, using defaults", e);
+            AppConfig::default()
+        }
+    };
+
+    // Step 3: Create AppState with loaded config (or defaults)
+    let app_state = AppState::new(config);
+
+    // Step 4: Store the database connection in AppState
+    app_state.set_database(&db);
 
     // Create channel for event forwarding
     let (event_tx, event_rx) = mpsc::channel::<TauriEvent>();
@@ -135,22 +164,7 @@ pub fn run() {
                 tracing::info!("Event listener task ended");
             });
 
-            // Initialize database and repositories
-            tracing::info!("Initializing database...");
-            let db = match tauri::async_runtime::block_on({
-                let app_state = app_state_for_setup.clone();
-                async move {
-                    app_state.init_database().await
-                }
-            }) {
-                Ok(db) => db,
-                Err(e) => {
-                    tracing::error!("Failed to initialize database: {:?}", e);
-                    return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
-                }
-            };
-
-            // Run migrations
+            // Run migrations (database connection and config already loaded before setup)
             tracing::info!("Running database migrations...");
             if let Err(e) = tauri::async_runtime::block_on(async {
                 Migrator::up(&db, None).await
@@ -163,13 +177,32 @@ pub fn run() {
             // Initialize PeerManager
             tracing::info!("Initializing PeerManager...");
 
-            // Get UDP port from config
+            // Get UDP port from config (already loaded from database before AppState creation)
             let config = app_state_for_setup.get_config();
             let udp_port = config.udp_port;
 
+            // Log UDP port source
+            use crate::config::AppConfig;
+            if udp_port == AppConfig::DEFAULT_UDP_PORT {
+                tracing::info!("Using default UDP port: {}", udp_port);
+            } else {
+                tracing::info!("Using configured UDP port from database: {}", udp_port);
+            }
+
             // Bind UDP transport for receiving (PeerManager) with retry
             let udp_recv = match UdpTransport::bind_with_retry(udp_port, 10) {
-                Ok(u) => u,
+                Ok(u) => {
+                    let actual_port = u.port();
+                    if actual_port != udp_port {
+                        tracing::warn!(
+                            "Requested UDP port {} was unavailable, using port {} instead",
+                            udp_port,
+                            actual_port
+                        );
+                    }
+                    tracing::info!("UDP receive transport bound to port {}", actual_port);
+                    u
+                }
                 Err(e) => {
                     tracing::error!("Failed to bind UDP transport after retries: {}", e);
                     return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
@@ -187,6 +220,15 @@ pub fn run() {
                     return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
                 }
             };
+
+            // Log TCP port range configuration
+            let tcp_port_count = config.tcp_port_end - config.tcp_port_start + 1;
+            tracing::info!(
+                "TCP port range configured: {}-{} ({} ports available)",
+                config.tcp_port_start,
+                config.tcp_port_end,
+                tcp_port_count
+            );
 
             // Create channel for routing messages from PeerManager to MessageHandler
             let (message_route_tx, message_route_rx) = mpsc::channel::<MessageRouteRequest>();

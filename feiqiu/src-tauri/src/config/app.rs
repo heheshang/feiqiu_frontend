@@ -163,7 +163,6 @@ impl Default for AppConfig {
 }
 
 /// 配置存储键名常量
-#[allow(dead_code)]
 mod keys {
     pub const CONFIG: &str = "app_config";
 }
@@ -171,15 +170,11 @@ mod keys {
 /// 配置仓库
 ///
 /// 负责从 settings 表加载和保存配置
-///
-/// NOTE: Currently not integrated but intended for future database-backed configuration
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct ConfigRepository {
     db: DatabaseConnection,
 }
 
-#[allow(dead_code)]
 impl ConfigRepository {
     /// 创建新的 ConfigRepository
     pub fn new(db: DatabaseConnection) -> Self {

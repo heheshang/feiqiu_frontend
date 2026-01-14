@@ -170,7 +170,7 @@ impl FileTransferResponse {
 
         // Serialize and send via UDP
         let msg_bytes = crate::network::serialize_message(&proto_msg)?;
-        let addr = SocketAddr::new(request.sender_ip, 2425);
+        let addr = SocketAddr::new(request.sender_ip, 2425); // IPMsg standard port
         udp.send_to(&msg_bytes, addr)?;
 
         if accept {
@@ -249,6 +249,8 @@ mod tests {
             udp.clone(),
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         ));
 
         let handler = FileTransferResponse::new(
@@ -293,6 +295,8 @@ mod tests {
             udp.clone(),
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         ));
 
         let handler = FileTransferResponse::new(
@@ -325,6 +329,8 @@ mod tests {
             udp.clone(),
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         ));
 
         let handler = FileTransferResponse::new(
@@ -357,6 +363,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         ));
 
         let handler = FileTransferResponse::new(
@@ -405,6 +413,8 @@ mod tests {
             udp,
             "TestUser".to_string(),
             "test-host".to_string(),
+            8000,  // tcp_port_start
+            9000,  // tcp_port_end
         ));
 
         let handler = FileTransferResponse::new(

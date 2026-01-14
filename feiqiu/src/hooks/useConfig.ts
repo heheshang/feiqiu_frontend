@@ -24,7 +24,7 @@ export interface UseConfigResult {
   /** Function to manually refresh config */
   refresh: () => Promise<void>
   /** Function to update configuration (partial update) */
-  updateConfig: (config: Partial<Config>) => Promise<Config>
+  updateConfig: (config: Partial<Config>) => Promise<void>
   /** Function to reset configuration to defaults */
   resetConfig: () => Promise<Config>
   /** Function to get a single config value */
@@ -125,22 +125,18 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
    */
   const updateConfig = useCallback(async (
     partialConfig: Partial<Config>
-  ): Promise<Config> => {
+  ): Promise<void> => {
     try {
-      const updatedConfig = await configApi.setConfig(partialConfig)
+      await configApi.setConfig(partialConfig)
 
-      // Update local state optimistically
-      if (isMountedRef.current) {
-        setConfig(updatedConfig)
-      }
-
-      return updatedConfig
+      // Refetch config to get the updated state
+      await fetchConfig()
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
       setError(error)
       throw error
     }
-  }, [])
+  }, [fetchConfig])
 
   /**
    * Reset configuration to defaults

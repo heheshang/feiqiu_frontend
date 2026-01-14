@@ -23,11 +23,10 @@ export async function getConfig(): Promise<Config> {
  * Only provided fields will be updated (partial update)
  *
  * @param config - Partial configuration object with fields to update
- * @returns Updated configuration
+ * @returns void (backend returns no data on success)
  */
-export async function setConfig(config: Partial<Config>): Promise<Config> {
-  const result = await invokeCommand<any>('set_config', { config })
-  return toFrontendConfig(result)
+export async function setConfig(config: Partial<Config>): Promise<void> {
+  await invokeCommand<void>('set_config', { config })
 }
 
 /**
