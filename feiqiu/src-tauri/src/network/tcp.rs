@@ -306,7 +306,6 @@ impl TcpTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr};
     use std::thread;
     use std::time::Duration;
@@ -328,8 +327,8 @@ mod tests {
     #[test]
     fn test_bind_multiple() {
         // Bind to multiple ports
-        let (listener1, port1) = TcpTransport::bind_available().unwrap();
-        let (listener2, port2) = TcpTransport::bind_available().unwrap();
+        let (_listener1, port1) = TcpTransport::bind_available().unwrap();
+        let (_listener2, port2) = TcpTransport::bind_available().unwrap();
 
         assert_ne!(port1, port2);
         assert!(port1 >= PORT_RANGE_START && port1 < PORT_RANGE_END);

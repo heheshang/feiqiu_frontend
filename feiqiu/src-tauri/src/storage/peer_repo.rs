@@ -193,8 +193,6 @@ impl PeerRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_peer_repo_creation() {
         // 测试 PeerRepository 创建

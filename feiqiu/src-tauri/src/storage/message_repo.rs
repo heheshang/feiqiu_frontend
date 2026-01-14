@@ -271,8 +271,6 @@ impl MessageRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_message_repo_creation() {
         // 测试 MessageRepository 创建

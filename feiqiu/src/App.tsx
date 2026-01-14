@@ -5,6 +5,7 @@ import { Messaging } from './components/messaging'
 import { FileTransfer } from './components/file-transfer'
 import { CollaborationTools } from './components/collaboration'
 import { OrganizationChart } from './components/organization'
+import { Contacts } from './components/contacts'
 import { NavTab, UserStatus } from './lib/types/shell'
 import { useDarkMode } from './hooks/useDarkMode'
 import { User as SettingsUser, NetworkConfig, NetworkStatus } from './lib/types/basic-settings'
@@ -266,11 +267,7 @@ function App() {
           />
         )
       case 'contacts':
-        return (
-          <div className="flex-1 flex items-center justify-center h-full">
-            <p className="text-slate-400 dark:text-slate-500">通讯录功能开发中</p>
-          </div>
-        )
+        return <Contacts />
       case 'files':
         return (
           <FileTransfer

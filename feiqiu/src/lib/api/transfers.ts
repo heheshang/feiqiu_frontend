@@ -7,6 +7,7 @@
 import { invokeCommand } from './base'
 import { toFrontendTransfers } from '../converters'
 import type { FileTransfer } from '../converters'
+import type { TaskDto } from './types'
 
 /**
  * File transfer filters for getFileTransfers
@@ -16,8 +17,6 @@ export interface TransferFilters extends Record<string, unknown> {
   peerIp?: string
   /** Filter by transfer direction */
   direction?: 'incoming' | 'outgoing'
-  /** Filter by transfer status */
-  status?: 'pending' | 'active' | 'completed' | 'failed' | 'cancelled'
   /** Filter by minimum timestamp (i64 milliseconds) */
   after?: number
   /** Filter by maximum timestamp (i64 milliseconds) */
@@ -53,7 +52,7 @@ export async function rejectFileTransfer(transferId: string): Promise<void> {
  * @returns Array of file transfers
  */
 export async function getFileTransfers(filters?: TransferFilters): Promise<FileTransfer[]> {
-  const result = await invokeCommand<any[]>('get_file_transfers', filters || {})
+  const result = await invokeCommand<TaskDto[]>('get_file_transfers', filters || {})
   return toFrontendTransfers(result)
 }
 
@@ -78,8 +77,8 @@ export async function getTransfersByPeer(
  * @returns Array of active transfers
  */
 export async function getActiveTransfers(limit?: number): Promise<FileTransfer[]> {
-  const all = await getFileTransfers({ limit })
-  return all.filter(t => t.status === 'transferring')
+  const transfers = await getFileTransfers({ limit })
+  return transfers.filter(t => t.status === 'transferring')
 }
 
 /**
@@ -89,8 +88,8 @@ export async function getActiveTransfers(limit?: number): Promise<FileTransfer[]
  * @returns Array of pending transfers
  */
 export async function getPendingTransfers(limit?: number): Promise<FileTransfer[]> {
-  const all = await getFileTransfers({ limit })
-  return all.filter(t => t.status === 'waiting')
+  const transfers = await getFileTransfers({ limit })
+  return transfers.filter(t => t.status === 'waiting')
 }
 
 /**
@@ -104,28 +103,55 @@ export async function cancelFileTransfer(transferId: string): Promise<void> {
 }
 
 /**
- * Gets file transfer statistics
- *
- * @returns Statistics about transfer counts by status
+ * File transfer statistics
  */
-export async function getTransferStats(): Promise<{
+export interface TransferStats {
   totalTransfers: number
   activeTransfers: number
   pendingTransfers: number
   completedTransfers: number
   failedTransfers: number
   cancelledTransfers: number
-}> {
-  const all = await getFileTransfers()
+}
 
-  return {
-    totalTransfers: all.length,
-    activeTransfers: all.filter(t => t.status === 'transferring').length,
-    pendingTransfers: all.filter(t => t.status === 'waiting').length,
-    completedTransfers: all.filter(t => t.status === 'completed').length,
-    failedTransfers: all.filter(t => t.status === 'failed').length,
-    cancelledTransfers: all.filter(t => t.status === 'cancelled').length,
+/**
+ * Gets file transfer statistics
+ *
+ * @returns Statistics about transfer counts by status
+ */
+export async function getTransferStats(): Promise<TransferStats> {
+  const transfers = await getFileTransfers()
+
+  const stats: TransferStats = {
+    totalTransfers: transfers.length,
+    activeTransfers: 0,
+    pendingTransfers: 0,
+    completedTransfers: 0,
+    failedTransfers: 0,
+    cancelledTransfers: 0,
   }
+
+  for (const transfer of transfers) {
+    switch (transfer.status) {
+      case 'transferring':
+        stats.activeTransfers++
+        break
+      case 'waiting':
+        stats.pendingTransfers++
+        break
+      case 'completed':
+        stats.completedTransfers++
+        break
+      case 'failed':
+        stats.failedTransfers++
+        break
+      case 'cancelled':
+        stats.cancelledTransfers++
+        break
+    }
+  }
+
+  return stats
 }
 
 /**

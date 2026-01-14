@@ -975,7 +975,7 @@ mod tests {
         let target_ip: IpAddr = "127.0.0.1".parse().unwrap();
 
         // Override default port for testing
-        let result = handler.send_text_message(target_ip, "Hello, Test!");
+        let _result = handler.send_text_message(target_ip, "Hello, Test!");
 
         // Send to our own receiver port
         let sender_udp = handler.udp();
@@ -1002,7 +1002,7 @@ mod tests {
         let result = receiver_udp.recv_from(&mut buffer);
 
         assert!(result.is_ok());
-        let (len, addr) = result.unwrap();
+        let (len, _addr) = result.unwrap();
         assert!(len > 0);
 
         // Parse and verify the message

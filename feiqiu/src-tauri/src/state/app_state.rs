@@ -8,6 +8,7 @@ use crate::modules::peer::{PeerManager, PeerNode};
 use crate::storage::database::establish_connection;
 use crate::storage::message_repo::MessageRepository;
 use crate::storage::peer_repo::PeerRepository;
+use crate::storage::contact_repo::ContactRepository;
 use crate::Result;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -161,6 +162,9 @@ pub struct AppState {
     /// Peer repository
     peer_repo: Arc<Mutex<Option<PeerRepository>>>,
 
+    /// Contact repository
+    contact_repo: Arc<Mutex<Option<ContactRepository>>>,
+
     /// Peer manager (when initialized)
     peer_manager: Arc<Mutex<Option<PeerManager>>>,
 
@@ -184,6 +188,7 @@ impl AppState {
             db: Arc::new(Mutex::new(None)),
             message_repo: Arc::new(Mutex::new(None)),
             peer_repo: Arc::new(Mutex::new(None)),
+            contact_repo: Arc::new(Mutex::new(None)),
             peer_manager: Arc::new(Mutex::new(None)),
             message_handler: Arc::new(Mutex::new(None)),
             config: Arc::new(Mutex::new(config)),
@@ -211,9 +216,11 @@ impl AppState {
         // Create repositories
         let message_repo = MessageRepository::new(db.clone());
         let peer_repo = PeerRepository::new(db.clone());
+        let contact_repo = ContactRepository::new(db.clone());
 
         *self.message_repo.lock().unwrap() = Some(message_repo);
         *self.peer_repo.lock().unwrap() = Some(peer_repo);
+        *self.contact_repo.lock().unwrap() = Some(contact_repo);
 
         tracing::info!("Database initialized successfully");
 
@@ -232,6 +239,13 @@ impl AppState {
     /// Returns None if database hasn't been initialized.
     pub fn get_peer_repo(&self) -> Option<PeerRepository> {
         self.peer_repo.lock().unwrap().as_ref().cloned()
+    }
+
+    /// Get the contact repository
+    ///
+    /// Returns None if database hasn't been initialized.
+    pub fn get_contact_repo(&self) -> Option<ContactRepository> {
+        self.contact_repo.lock().unwrap().as_ref().cloned()
     }
 
     /// Check if database is initialized

@@ -5,3 +5,4 @@ pub mod config;
 pub mod events;
 pub mod message;
 pub mod file_transfer;
+pub mod contacts;

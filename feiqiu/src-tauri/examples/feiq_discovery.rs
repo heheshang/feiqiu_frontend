@@ -23,7 +23,8 @@ use std::thread;
 use std::time::Duration;
 
 // 引入 NeoLan 协议模块
-use neolan_lib::network::protocol::{self, ProtocolMessage, msg_type};
+use feiqiu::network::protocol::{self, ProtocolMessage, msg_type};
+use feiqiu::utils;
 
 /// 飞秋用户信息
 #[derive(Debug, Clone)]
@@ -307,6 +308,8 @@ impl FeiqDiscovery {
 }
 
 fn main() {
+        // Initialize logging system first
+    utils::logger::init_logger();
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║              NeoLan - 飞秋（FeiQ）交互示例                    ║");
     println!("║                                                                ║");
@@ -339,6 +342,7 @@ fn main() {
     println!("  命令列表:");
     println!("    l - 显示在线用户列表");
     println!("    r - 重新广播上线");
+    println!("    i - 获取用户信息 (输入 IP 地址)");
     println!("    q - 退出程序");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
@@ -403,8 +407,29 @@ fn main() {
 
                     if let Ok((command, username, hostname, extra)) = parse_ipmsg_message(&buffer[..len]) {
                         let ip = sender.ip();
-
+                        
                         match command {
+                            msg_type::IPMSG_GETINFO => {
+                                // 收到获取用户信息请求，回复 SENDINFO
+                                println!("ℹ️  收到用户信息请求: {} ({})", username, ip);
+                                
+                                // 构造用户信息回复（格式：用户名\0主机名\0其他信息）
+                                let user_info = format!(
+                                    "{}\0{}\0NeoLan v1.0 - Rust IPMsg Client",
+                                    username_clone,
+                                    hostname_clone
+                                );
+                                
+                                let info_msg = create_ipmsg_message(
+                                    1,
+                                    &username_clone,
+                                    &hostname_clone,
+                                    msg_type::IPMSG_SENDINFO,
+                                    &user_info,
+                                );
+                                let _ = socket_clone.send_to(&info_msg, sender);
+                                println!("📤 已回复用户信息给 {} ({})", username, ip);
+                            }
                             msg_type::IPMSG_BR_ENTRY => {
                                 let mut users = users_arc_clone.lock().unwrap();
                                 if !users.contains_key(&ip) {
@@ -457,6 +482,17 @@ fn main() {
                                 );
                                 let _ = socket_clone.send_to(&recv_msg, sender);
                             }
+                            msg_type::IPMSG_SENDINFO => {
+                                // 收到用户信息回复
+                                println!("ℹ️  收到用户信息回复: {} ({})", username, ip);
+                                // 解析用户信息（格式：用户名\0主机名\0其他信息）
+                                let info_parts: Vec<&str> = extra.split('\0').collect();
+                                if !info_parts.is_empty() {
+                                    println!("   用户名: {}", info_parts.get(0).unwrap_or(&""));
+                                    println!("   主机名: {}", info_parts.get(1).unwrap_or(&""));
+                                    println!("   附加信息: {}", info_parts.get(2).unwrap_or(&""));
+                                }
+                            }
                             _ => {
                                 println!("📩 [DEBUG] 收到其他消息类型: 0x{:08X} 来自: {}", command, sender.ip());
                             }
@@ -506,13 +542,48 @@ fn main() {
                 running.store(false, std::sync::atomic::Ordering::SeqCst);
                 break;
             }
+            "i" => {
+                // 获取用户信息
+                println!();
+                print!("请输入目标 IP 地址: ");
+                io::stdout().flush().unwrap();
+                
+                let mut ip_input = String::new();
+                io::stdin().read_line(&mut ip_input).unwrap();
+                let ip_input = ip_input.trim();
+                
+                if let Ok(target_ip) = ip_input.parse::<IpAddr>() {
+                    // 发送 IPMSG_GETINFO 请求
+                    let getinfo_msg = create_ipmsg_message(
+                        discovery.packet_id,
+                        &discovery.local_username,
+                        &discovery.local_hostname,
+                        msg_type::IPMSG_GETINFO,
+                        "",
+                    );
+                    
+                    let target_addr = SocketAddr::new(target_ip, msg_type::IPMSG_DEFAULT_PORT);
+                    match discovery.socket.send_to(&getinfo_msg, target_addr) {
+                        Ok(_) => {
+                            println!("📤 已发送用户信息请求到 {}", target_ip);
+                            discovery.packet_id += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("❌ 发送失败: {:?}", e);
+                        }
+                    }
+                } else {
+                    println!("❌ 无效的 IP 地址: {}", ip_input);
+                }
+                println!();
+            }
             "" => {
                 // 空输入，继续
             }
             _ => {
                 println!();
                 println!("❓ 未知命令: {}", input);
-                println!("   可用命令: l (列表), r (广播), q (退出)");
+                println!("   可用命令: l (列表), r (广播), i (获取用户信息), q (退出)");
                 println!();
             }
         }

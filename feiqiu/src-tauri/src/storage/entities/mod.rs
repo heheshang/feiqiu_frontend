@@ -5,3 +5,6 @@ pub mod transfers;
 pub mod groups;
 pub mod settings;
 pub mod audit_logs;
+pub mod contacts;
+pub mod contact_groups;
+pub mod contact_group_members;

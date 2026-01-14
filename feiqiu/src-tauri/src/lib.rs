@@ -30,6 +30,11 @@ use commands::config::{get_config, set_config, reset_config, get_config_value, s
 use commands::events::poll_events;
 use commands::message::{send_message, send_text_message, get_messages};
 use commands::file_transfer::{accept_file_transfer, reject_file_transfer, get_file_transfers, cancel_file_transfer};
+use commands::contacts::{
+    get_contacts, get_contact, create_contact, update_contact, delete_contact,
+    get_contact_groups, create_contact_group, update_contact_group, delete_contact_group,
+    add_contacts_to_group, remove_contacts_from_group, search_contacts, get_contact_stats,
+};
 use std::sync::mpsc;
 
 
@@ -267,6 +272,19 @@ pub fn run() {
             reject_file_transfer,
             get_file_transfers,
             cancel_file_transfer,
+            get_contacts,
+            get_contact,
+            create_contact,
+            update_contact,
+            delete_contact,
+            get_contact_groups,
+            create_contact_group,
+            update_contact_group,
+            delete_contact_group,
+            add_contacts_to_group,
+            remove_contacts_from_group,
+            search_contacts,
+            get_contact_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

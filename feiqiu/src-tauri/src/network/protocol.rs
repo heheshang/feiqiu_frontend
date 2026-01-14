@@ -144,7 +144,7 @@ fn decode_message_bytes(data: &[u8]) -> String {
 /// Returns a human-readable description of the message type
 pub fn explain_message_type(msg_type: u32) -> String {
     let mode = msg_type::get_mode(msg_type) as u32;
-    let opts = msg_type::get_opt(msg_type);
+    let _opts = msg_type::get_opt(msg_type);
 
     let mode_name = get_message_type_name(msg_type);
 
@@ -283,7 +283,7 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
             parse_section
         )));
     }
-
+    // 1_lbt6_0#128#5C60BA7361C6#1944#0#0#4001#9:1765442982:T0170006:LINLINDONG-N:6291459:董琳琳DT-DTG4
     // Detect FeiQ format: version:timestamp:packet_id:hostname:msg_type:content
     // vs standard: version:packet_id:sender_name:sender_host:msg_type:content
     // FeiQ timestamp is typically a 10-digit Unix timestamp (e.g., 1761386707) at fields[1]
@@ -307,7 +307,7 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
             };
             (
                 PROTOCOL_VERSION,
-                fields[2],           // Packet ID field
+                fields[1],           // Packet ID field
                 content,              // Content field (contains username for BR_ENTRY)
                 fields[3].to_string(),  // Hostname field
                 true, // Mark as FeiQ format
@@ -373,12 +373,10 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
     // Debug log for FeiQ format detection
     if is_feiq {
         eprintln!("DEBUG: FeiQ format detected");
-        eprintln!("DEBUG: fields[0]={}", fields[0]);
-        eprintln!("DEBUG: fields[1]={}", fields[1]);
-        eprintln!("DEBUG: fields[2]={}", fields[2]);
-        eprintln!("DEBUG: fields[3]={}", fields[3]);
-        eprintln!("DEBUG: fields[4]={}", fields[4]);
-        eprintln!("DEBUG: sender_name={}, sender_host={}", sender_name, sender_host);
+        fields.iter()
+            .enumerate()
+            .for_each(|(i, field)| eprintln!("DEBUG: fields[{}] = '{}'", i, field));
+        eprintln!("DEBUG: sender_name={}, sender_host={} ", sender_name, sender_host);
     } else {
         eprintln!("DEBUG: Standard IPMsg format");
         eprintln!("DEBUG: fields[0]={}", fields[0]);
