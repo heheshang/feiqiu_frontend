@@ -309,23 +309,6 @@ impl AppState {
         }
     }
 
-    /// Emit peers discovered event
-    ///
-    /// This should be called after peer discovery to notify frontend of all discovered peers.
-    pub fn emit_peers_discovered(&self) {
-        let peers = self.get_peers();
-        let peer_dtos: Vec<PeerDiscoveredDto> = peers
-            .iter()
-            .map(PeerDiscoveredDto::from_peer_node)
-            .collect();
-
-        tracing::info!(
-            "Emitting PeersDiscovered event with {} peers",
-            peer_dtos.len()
-        );
-
-        self.emit_tauri_event(TauriEvent::PeersDiscovered { peers: peer_dtos });
-    }
 
     /// Get the peer manager
     ///

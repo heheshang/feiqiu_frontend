@@ -7,6 +7,7 @@
 // - Routing text messages to MessageHandler
 
 use crate::modules::peer::{discovery::PeerDiscovery, types::*};
+use crate::network::msg_type;
 use crate::{network::ProtocolMessage, Result};
 use std::collections::HashMap;
 use std::io::{self, Error as IoError};
@@ -175,22 +176,61 @@ impl PeerManager {
 
         match mode as u32 {
             // IPMSG_BR_ENTRY: Peer is online / broadcasting presence
-            crate::network::msg_type::IPMSG_BR_ENTRY => {
+          msg_type::IPMSG_BR_ENTRY => {
                 debug!("📢 Handling BR_ENTRY (peer online)");
-                Self::handle_online_msg(peers, msg, sender)?;
+                Self::handle_online_msg(peers, &msg, sender)?;
+                if let Some(ref tx) = *safe_lock!(message_tx) {
+                    let route_req = MessageRouteRequest {
+                        message: msg,
+                        sender,
+                    };
+                    if let Err(e) = tx.send(route_req) {
+                        error!("❌ Failed to send message to MessageHandler: {}", e);
+                    } else {
+                        debug!("✅ Message routed to MessageHandler successfully");
+                    }
+                } else {
+                    warn!("⚠️ MessageHandler channel not set - text message not routed");
+                }
             }
             // IPMSG_BR_EXIT: Peer is going offline
-            crate::network::msg_type::IPMSG_BR_EXIT => {
+          msg_type::IPMSG_BR_EXIT => {
                 debug!("📴 Handling BR_EXIT (peer offline)");
                 Self::handle_offline_msg(peers, ip)?;
+                if let Some(ref tx) = *safe_lock!(message_tx) {
+                    let route_req = MessageRouteRequest {
+                        message: msg,
+                        sender,
+                    };
+                    if let Err(e) = tx.send(route_req) {
+                        error!("❌ Failed to send message to MessageHandler: {}", e);
+                    } else {
+                        debug!("✅ Message routed to MessageHandler successfully");
+                    }
+                } else {
+                    warn!("⚠️ MessageHandler channel not set - text message not routed");
+                }
             }
             // IPMSG_ANSENTRY: Response to BR_ENTRY (also indicates online presence)
-            crate::network::msg_type::IPMSG_ANSENTRY => {
+          msg_type::IPMSG_ANSENTRY => {
                 debug!("📢 Handling ANSENTRY (peer online response)");
-                Self::handle_online_msg(peers, msg, sender)?;
+                Self::handle_online_msg(peers, &msg, sender)?;
+                if let Some(ref tx) = *safe_lock!(message_tx) {
+                    let route_req = MessageRouteRequest {
+                        message: msg,
+                        sender,
+                    };
+                    if let Err(e) = tx.send(route_req) {
+                        error!("❌ Failed to send message to MessageHandler: {}", e);
+                    } else {
+                        debug!("✅ Message routed to MessageHandler successfully");
+                    }
+                } else {
+                    warn!("⚠️ MessageHandler channel not set - text message not routed");
+                }
             }
             // IPMSG_SENDMSG: Text message - route to MessageHandler
-            crate::network::msg_type::IPMSG_SENDMSG => {
+          msg_type::IPMSG_SENDMSG => {
                 info!(
                     "💌 [TEXT MESSAGE] Routing text message to MessageHandler: from={}, content={}",
                     msg.sender_name,
@@ -211,7 +251,7 @@ impl PeerManager {
                 }
             }
             // IPMSG_RECVMSG: Message acknowledgment - route to MessageHandler
-            crate::network::msg_type::IPMSG_RECVMSG => {
+          msg_type::IPMSG_RECVMSG => {
                 info!("✅ [RECEIPT ACK] Routing message acknowledgment to MessageHandler: from={}, packet_id={}",
                     msg.sender_name, msg.packet_id);
                 if let Some(ref tx) = *safe_lock!(message_tx) {
@@ -234,7 +274,7 @@ impl PeerManager {
                     "ℹ️ Ignoring message type: {} (mode: {}, options: 0x{:06x})",
                     msg.msg_type,
                     mode,
-                    crate::network::msg_type::get_opt(msg.msg_type)
+                  msg_type::get_opt(msg.msg_type)
                 );
             }
         }
@@ -245,7 +285,7 @@ impl PeerManager {
     /// Handle online message
     fn handle_online_msg(
         peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>,
-        msg: ProtocolMessage,
+        msg: &ProtocolMessage,
         sender: SocketAddr,
     ) -> Result<()> {
         let ip = sender.ip();

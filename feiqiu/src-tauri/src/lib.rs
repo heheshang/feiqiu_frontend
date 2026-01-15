@@ -1,4 +1,9 @@
+//! NeoLan - Local Area Network Communication Application
+//!
+//! This is the main library entry point for the Tauri backend.
+
 // Module declarations
+mod bootstrap;
 mod commands;
 mod config;
 mod error;
@@ -9,24 +14,12 @@ pub mod state;
 mod storage;
 pub mod utils;
 
-// Import Emitter trait for event emission
-use crate::config::app::{AppConfig, ConfigRepository};
-use crate::migration::{Migrator, MigratorTrait};
-use crate::modules::message::handler::MessageHandler;
-use crate::modules::peer::manager::MessageRouteRequest;
-use crate::modules::peer::{discovery::PeerDiscovery, PeerManager};
-use crate::network::UdpTransport;
-use crate::storage::database::establish_connection;
-use std::thread;
-use std::time::Duration;
-use tauri::Emitter;
-
 // Re-export commonly used types
 pub use error::{NeoLanError, Result};
 pub use state::app_state::{PeerDiscoveredDto, TauriEvent};
 pub use state::AppState;
 
-// Import Tauri commands from submodules
+// Import Tauri commands
 use commands::config::{get_config, get_config_value, reset_config, set_config, set_config_value};
 use commands::contacts::{
     add_contacts_to_group, create_contact, create_contact_group, delete_contact,
@@ -41,71 +34,20 @@ use commands::message::{get_messages, send_message, send_text_message};
 use commands::peer::{
     get_network_status, get_online_peers, get_peer_by_ip, get_peer_stats, get_peers,
 };
-use std::sync::mpsc;
+use commands::system::get_system_info;
 
-#[tauri::command]
-async fn get_system_info() -> serde_json::Value {
-    #[cfg(target_os = "windows")]
-    let platform = "windows";
-    #[cfg(target_os = "macos")]
-    let platform = "macos";
-    #[cfg(target_os = "linux")]
-    let platform = "linux";
-
-    serde_json::json!({
-        "platform": platform,
-        "version": "1.0.0"
-    })
-}
-
+/// Application entry point
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize logging system first
+    // Initialize logging
     utils::logger::init_logger();
-
-    // Log application startup
     tracing::info!("NeoLan starting...");
 
-    // Step 1: Establish database connection first (before creating AppState)
-    tracing::info!("Establishing database connection...");
-    let db = match tauri::async_runtime::block_on(establish_connection()) {
-        Ok(db) => {
-            tracing::info!("Database connection established");
-            db
-        }
-        Err(e) => {
-            tracing::error!("Failed to establish database connection: {}", e);
-            panic!("Database connection failed: {}", e);
-        }
-    };
-
-    // Step 2: Load config from database
-    tracing::info!("Loading configuration from database...");
-    let config_repo = ConfigRepository::new(db.clone());
-    let config = match tauri::async_runtime::block_on(config_repo.load_app_config()) {
-        Ok(cfg) => {
-            tracing::info!("Configuration loaded successfully from database");
-            cfg
-        }
-        Err(e) => {
-            tracing::warn!("Failed to load config from database: {}, using defaults", e);
-            AppConfig::default()
-        }
-    };
-
-    // Step 3: Create AppState with loaded config (or defaults)
-    let app_state = AppState::new(config);
-
-    // Step 4: Store the database connection in AppState
-    app_state.set_database(&db);
-
-    // Create channel for event forwarding
-    let (event_tx, event_rx) = mpsc::channel::<TauriEvent>();
-
-    // Set the event sender in AppState
-    app_state.set_event_sender(event_tx);
-
-    // Clone app_state before moving into setup
+    // Bootstrap application (database, config, app state)
+    let bootstrap::BootstrapResult {
+        app_state,
+        event_rx,
+    } = bootstrap::bootstrap();
     let app_state_for_setup = app_state.clone();
 
     tauri::Builder::default()
@@ -113,208 +55,43 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
-            // Get AppHandle for emitting events
-            let app_handle = app.handle().clone();
+            // Start event listener
+            bootstrap::spawn_event_listener(app.handle().clone(), event_rx);
 
-            // Spawn background task to listen for events and forward to frontend
-            tauri::async_runtime::spawn(async move {
-                tracing::info!("🎧 [EVENT TASK] Event listener task started");
-                for event in event_rx {
-                    match &event {
-                        TauriEvent::MessageReceived { msg_id, sender_name, sender_ip, content, .. } => {
-                            tracing::info!("📤 [TAURI EMIT] Emitting message-received to frontend: msg_id={}, from={}, ip={}, content={}",
-                                msg_id, sender_name, sender_ip,
-                                content.chars().take(50).collect::<String>());
-                            if let Err(e) = app_handle.emit("message-received", &event) {
-                                tracing::error!("❌ Failed to emit message-received event: {}", e);
-                            } else {
-                                tracing::debug!("✅ message-received event emitted successfully to frontend");
-                            }
-                        }
-                        TauriEvent::PeerOnline { .. } => {
-                            if let Err(e) = app_handle.emit("peer-online", &event) {
-                                tracing::error!("Failed to emit peer-online event: {}", e);
-                            }
-                        }
-                        TauriEvent::PeerOffline { .. } => {
-                            if let Err(e) = app_handle.emit("peer-offline", &event) {
-                                tracing::error!("Failed to emit peer-offline event: {}", e);
-                            }
-                        }
-                        TauriEvent::FileTransferRequest { .. } => {
-                            if let Err(e) = app_handle.emit("file-transfer-request", &event) {
-                                tracing::error!("Failed to emit file-transfer-request event: {}", e);
-                            }
-                        }
-                        TauriEvent::PeersDiscovered { .. } => {
-                            if let Err(e) = app_handle.emit("peers-discovered", &event) {
-                                tracing::error!("Failed to emit peers-discovered event: {}", e);
-                            }
-                        }
-                        TauriEvent::MessageReceiptAck { msg_id, sender_ip, sender_name, .. } => {
-                            tracing::info!("📤 [TAURI EMIT] Emitting message-receipt-ack to frontend: msg_id={}, from={}, ip={}",
-                                msg_id, sender_name, sender_ip);
-                            if let Err(e) = app_handle.emit("message-receipt-ack", &event) {
-                                tracing::error!("❌ Failed to emit message-receipt-ack event: {}", e);
-                            } else {
-                                tracing::debug!("✅ message-receipt-ack event emitted successfully to frontend");
-                            }
-                        }
-                    }
-                }
-                tracing::info!("Event listener task ended");
-            });
-
-            // Run migrations (database connection and config already loaded before setup)
-            tracing::info!("Running database migrations...");
-            if let Err(e) = tauri::async_runtime::block_on(async {
-                Migrator::up(&db, None).await
-            }) {
-                tracing::error!("Database migration failed: {:?}", e);
-                return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
-            }
-            tracing::info!("Database migrations completed");
-
-            // Initialize PeerManager
-            tracing::info!("Initializing PeerManager...");
-
-            // Get UDP port from config (already loaded from database before AppState creation)
-            let config = app_state_for_setup.get_config();
-            let udp_port = config.udp_port;
-
-            // Log UDP port source
-            use crate::config::AppConfig;
-            if udp_port == AppConfig::DEFAULT_UDP_PORT {
-                tracing::info!("Using default UDP port: {}", udp_port);
-            } else {
-                tracing::info!("Using configured UDP port from database: {}", udp_port);
-            }
-
-            // Bind UDP transport for receiving (PeerManager) with retry
-            let udp_recv = match UdpTransport::bind_with_retry(udp_port, 10) {
-                Ok(u) => {
-                    let actual_port = u.port();
-                    if actual_port != udp_port {
-                        tracing::warn!(
-                            "Requested UDP port {} was unavailable, using port {} instead",
-                            udp_port,
-                            actual_port
-                        );
-                    }
-                    tracing::info!("UDP receive transport bound to port {}", actual_port);
-                    u
-                }
-                Err(e) => {
-                    tracing::error!("Failed to bind UDP transport after retries: {}", e);
-                    return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
-                }
-            };
-
-            // Bind UDP transport for sending (MessageHandler) - any available port
-            let udp_send = match UdpTransport::bind(0) {
-                Ok(u) => {
-                    tracing::info!("UDP send transport bound to port {}", u.port());
-                    u
-                }
-                Err(e) => {
-                    tracing::error!("Failed to bind UDP send transport: {}", e);
-                    return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
-                }
-            };
-
-            // Log TCP port range configuration
-            let tcp_port_count = config.tcp_port_end - config.tcp_port_start + 1;
-            tracing::info!(
-                "TCP port range configured: {}-{} ({} ports available)",
-                config.tcp_port_start,
-                config.tcp_port_end,
-                tcp_port_count
-            );
-
-            // Create channel for routing messages from PeerManager to MessageHandler
-            let (message_route_tx, message_route_rx) = mpsc::channel::<MessageRouteRequest>();
-
-            // Initialize MessageHandler
-            tracing::info!("Initializing MessageHandler...");
-            let app_state_arc = std::sync::Arc::new(app_state_for_setup.clone());
-            let message_handler = MessageHandler::new(udp_send, config.clone())
-                .with_app_state(app_state_arc);
-            app_state_for_setup.init_message_handler(message_handler);
-            tracing::info!("MessageHandler initialized");
-
-            // Spawn background task to handle routed messages from PeerManager
-            let app_state_for_messages = app_state_for_setup.clone();
-            let local_ip = config.bind_ip.parse().unwrap_or_else(|_| std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)));
-            thread::spawn(move || {
-                tracing::info!("Message handler task started");
-                for route_request in message_route_rx {
-                    let sender_ip = route_request.sender.ip();
-                    if let Err(e) = app_state_for_messages.handle_routed_message(
-                        &route_request.message,
-                        sender_ip,
-                        local_ip,
-                    ) {
-                        tracing::error!("Failed to handle incoming message: {:?}", e);
-                    }
-                }
-                tracing::info!("Message handler task ended");
-            });
-
-            // Create PeerDiscovery with system defaults
-            let discovery = PeerDiscovery::with_defaults(udp_recv);
-            tracing::info!("PeerDiscovery created: {}@{}", discovery.username(), discovery.hostname());
-
-            // Create PeerManager
-            let peer_manager = PeerManager::new(discovery);
-            // Connect message routing channel to PeerManager
-            peer_manager.set_message_handler_channel(message_route_tx);
-            app_state_for_setup.init_peer_manager(peer_manager);
-            tracing::info!("PeerManager initialized");
-
-            // Spawn peer manager in background thread
-            let app_state_for_thread = app_state_for_setup.clone();
-            thread::spawn(move || {
-                tracing::info!("PeerManager thread started");
-
-                // Start peer discovery (blocking call)
-                if let Err(e) = app_state_for_thread.start_peer_manager() {
-                    tracing::error!("PeerManager failed: {}", e);
-                }
-
-                tracing::info!("PeerManager thread ended");
-            });
-
-            // Wait a bit for peers to be discovered
-            let app_state_for_discovery = app_state_for_setup.clone();
-            thread::spawn(move || {
-                thread::sleep(Duration::from_secs(3));
-                tracing::info!("Emitting initial peers discovery");
-                app_state_for_discovery.emit_peers_discovered();
-            });
+            // Initialize network components
+            bootstrap::init_network(app, &app_state_for_setup)
+                .map_err(|e| e as Box<dyn std::error::Error>)?;
 
             Ok(())
         })
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
+            // System
             get_system_info,
+            // Peers
             get_peers,
             get_online_peers,
             get_peer_by_ip,
             get_peer_stats,
             get_network_status,
+            // Config
             get_config,
             set_config,
             reset_config,
             get_config_value,
             set_config_value,
+            // Events
             poll_events,
+            // Messages
             send_message,
             send_text_message,
             get_messages,
+            // File transfers
             accept_file_transfer,
             reject_file_transfer,
             get_file_transfers,
             cancel_file_transfer,
+            // Contacts
             get_contacts,
             get_contact,
             create_contact,

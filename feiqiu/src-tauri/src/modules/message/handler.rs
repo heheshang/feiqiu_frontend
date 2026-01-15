@@ -13,7 +13,7 @@ use crate::modules::file_transfer::FileTransferResponse;
 use crate::modules::message::types::{Message, MessageType};
 use crate::modules::peer::types::PeerInfo;
 use crate::network::udp::UdpTransport;
-use crate::network::{msg_type, serialize_message, ProtocolMessage};
+use crate::network::{get_message_type_name, msg_type, serialize_message, ProtocolMessage};
 use crate::state::app_state::TauriEvent;
 use crate::state::AppState;
 use crate::storage::contact_repo::ContactRepository;
@@ -318,150 +318,157 @@ impl MessageHandler {
     /// - IPMSG_BR_EXIT (0x00000002) → Should be handled by PeerManager
     /// - IPMSG_ANSENTRY (0x00000003) → Should be handled by HeartbeatMonitor
     /// - Other types → Logged and ignored
-    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, msg_type = %msg_type::get_mode(proto_msg.msg_type)))]
+    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, msg_type = %proto_msg.msg_type))]
     pub fn handle_incoming_message(
         &self,
         proto_msg: &ProtocolMessage,
         sender_ip: IpAddr,
         local_ip: IpAddr,
     ) -> Result<()> {
+        // Extract the mode (low 8 bits) from the message type
+        // get_mode returns u8, constants are u32, so we compare the raw mode value
         let mode = msg_type::get_mode(proto_msg.msg_type) as u32;
-
         tracing::debug!(
-            "Handling incoming message: mode={}, from={}",
-            msg_type::get_mode(proto_msg.msg_type),
-            sender_ip
+            mode = format_args!("0x{:02x}", mode),
+            msg_type = %get_message_type_name(proto_msg.msg_type),
+            %sender_ip,
+            "Handling incoming message"
         );
 
+        // Match on the mode (u8). Using const u8 values for direct comparison.
         match mode {
             // ========== Text Messages ==========
-            // IPMSG_SENDMSG: 发送消息
-            msg_type::IPMSG_SENDMSG => {
+            // IPMSG_SENDMSG: 发送消息 (0x00000020)
+             msg_type::IPMSG_SENDMSG => {
                 tracing::debug!("📨 [handle_incoming_message] Routing to handle_text_message");
                 self.handle_text_message(proto_msg, sender_ip, local_ip)?;
             }
 
-            // IPMSG_RECVMSG: 接收确认（对方已收到消息）
-            msg_type::IPMSG_RECVMSG => {
+            // IPMSG_RECVMSG: 接收确认（对方已收到消息） (0x00000040)
+            msg_type:: IPMSG_RECVMSG => {
                 tracing::debug!("📨 [handle_incoming_message] Routing to handle_recv_msg");
                 self.handle_recv_msg(proto_msg, sender_ip)?;
             }
 
             // ========== Message Read/Delete Status ==========
-            // IPMSG_READMSG: 消息已读
-            msg_type::IPMSG_READMSG => {
+            // IPMSG_READMSG: 消息已读 (0x00000050)
+             msg_type::IPMSG_READMSG => {
                 self.handle_read_msg(proto_msg, sender_ip)?;
             }
 
-            // IPMSG_DELMSG: 删除消息
-            msg_type::IPMSG_DELMSG => {
+            // IPMSG_DELMSG: 删除消息 (0x00000060)
+             msg_type::IPMSG_DELMSG => {
                 self.handle_del_msg(proto_msg, sender_ip)?;
             }
 
-            // IPMSG_ANSREADMSG: 对已读消息的应答
-            msg_type::IPMSG_ANSREADMSG => {
+            // IPMSG_ANSREADMSG: 对已读消息的应答 (0x00000051)
+             msg_type::IPMSG_ANSREADMSG => {
                 self.handle_answer_read_msg(proto_msg, sender_ip)?;
             }
 
             // ========== Peer Discovery Messages ==========
             // These should be handled by PeerManager through its own discovery callback
-            msg_type::IPMSG_BR_ENTRY | msg_type::IPMSG_BR_EXIT | msg_type::IPMSG_ANSENTRY => {
+            msg_type:: IPMSG_BR_ENTRY |  msg_type::IPMSG_BR_EXIT |  msg_type::IPMSG_ANSENTRY => {
                 tracing::debug!(
-                    "📢 Peer discovery message (mode={}), delegating to PeerManager",
+                    "📢 Peer discovery message (mode=0x{:02x}), delegating to PeerManager",
                     mode
                 );
+
+                
                 // PeerManager will handle these through its own discovery callback
                 // No action needed here - the message is already logged
             }
 
-            // IPMSG_BR_ABSENCE: 广播缺席状态
-            msg_type::IPMSG_BR_ABSENCE => {
+            // IPMSG_BR_ABSENCE: 广播缺席状态 (0x00000004)
+            msg_type:: IPMSG_BR_ABSENCE => {
                 tracing::info!("🏖️ Absence status broadcast from {}", sender_ip);
                 // TODO: Update peer absence status in PeerManager
             }
 
             // ========== Peer List Management ==========
-            // IPMSG_BR_ISGETLIST: 请求是否需要列表
-            msg_type::IPMSG_BR_ISGETLIST | msg_type::IPMSG_BR_ISGETLIST2 => {
+            // IPMSG_BR_ISGETLIST: 请求是否需要列表 (0x00000010)
+            // IPMSG_BR_ISGETLIST2: 请求是否需要列表 v2 (0x00000012)
+            msg_type:: IPMSG_BR_ISGETLIST |  msg_type::IPMSG_BR_ISGETLIST2 => {
                 tracing::info!("📋 Peer list request from {}", sender_ip);
                 // TODO: Send response with IPMSG_OKGETLIST
             }
 
-            // IPMSG_OKGETLIST: 同意发送列表
-            msg_type::IPMSG_OKGETLIST => {
+            // IPMSG_OKGETLIST: 同意发送列表 (0x00000011)
+             msg_type::IPMSG_OKGETLIST => {
                 tracing::info!("✅ Peer list approval from {}", sender_ip);
                 // TODO: Proceed to send IPMSG_GETLIST
             }
 
-            // IPMSG_GETLIST: 请求列表
-            msg_type::IPMSG_GETLIST => {
+            // IPMSG_GETLIST: 请求列表 (0x00000013)
+             msg_type::IPMSG_GETLIST => {
                 tracing::info!("📋 Get list request from {}", sender_ip);
                 // TODO: Send peer list with IPMSG_ANSLIST
             }
 
-            // IPMSG_ANSLIST: 返回列表
-            msg_type::IPMSG_ANSLIST => {
+            // IPMSG_ANSLIST: 返回列表 (0x00000014)
+             msg_type::IPMSG_ANSLIST => {
                 self.handle_peer_list_response(proto_msg, sender_ip)?;
             }
 
             // ========== User Information ==========
-            // IPMSG_GETINFO: 请求用户信息
-            msg_type::IPMSG_GETINFO => {
+            // IPMSG_GETINFO: 请求用户信息 (0x00000070)
+             msg_type::IPMSG_GETINFO => {
                 tracing::info!("ℹ️ User info request from {}", sender_ip);
                 // TODO: Send user info with IPMSG_SENDINFO
             }
 
-            // IPMSG_SENDINFO: 发送用户信息
-            msg_type::IPMSG_SENDINFO => {
+            // IPMSG_SENDINFO: 发送用户信息 (0x00000071)
+             msg_type::IPMSG_SENDINFO => {
                 self.handle_user_info(proto_msg, sender_ip)?;
             }
 
             // ========== Absence Information ==========
-            // IPMSG_GETABSENCEINFO: 请求缺席信息
-            msg_type::IPMSG_GETABSENCEINFO => {
+            // IPMSG_GETABSENCEINFO: 请求缺席信息 (0x00000072)
+             msg_type::IPMSG_GETABSENCEINFO => {
                 tracing::info!("🏖️ Absence info request from {}", sender_ip);
                 // TODO: Send absence info with IPMSG_SENDABSENCEINFO
             }
 
-            // IPMSG_SENDABSENCEINFO: 发送缺席信息
-            msg_type::IPMSG_SENDABSENCEINFO => {
+            // IPMSG_SENDABSENCEINFO: 发送缺席信息 (0x00000073)
+             msg_type::IPMSG_SENDABSENCEINFO => {
                 self.handle_absence_info(proto_msg, sender_ip)?;
             }
 
             // ========== File Transfer ==========
-            // IPMSG_GETFILEDATA: 请求文件数据（文件传输）
-            msg_type::IPMSG_GETFILEDATA => {
+            // IPMSG_GETFILEDATA: 请求文件数据（文件传输） (0x00000060)
+            msg_type:: IPMSG_GETFILEDATA => {
                 self.handle_file_transfer_request(proto_msg, sender_ip)?;
             }
 
-            // IPMSG_RELEASEFILES: 释放文件资源
-            msg_type::IPMSG_RELEASEFILES => {
+            // IPMSG_RELEASEFILES: 释放文件资源 (0x00000061)
+             msg_type::IPMSG_RELEASEFILES => {
                 self.handle_release_files(proto_msg, sender_ip)?;
             }
 
-            // IPMSG_GETDIRFILES: 请求目录文件列表
-            msg_type::IPMSG_GETDIRFILES => {
+            // IPMSG_GETDIRFILES: 请求目录文件列表 (0x00000062)
+             msg_type::IPMSG_GETDIRFILES => {
                 tracing::info!("📁 Directory file list request from {}", sender_ip);
                 // TODO: Handle directory file list request
             }
 
             // ========== Encryption ==========
-            // IPMSG_GETPUBKEY: 请求公钥
-            msg_type::IPMSG_GETPUBKEY => {
+            // IPMSG_GETPUBKEY: 请求公钥 (0x00000080)
+             msg_type::IPMSG_GETPUBKEY => {
                 tracing::info!("🔑 Public key request from {}", sender_ip);
                 // TODO: Send public key with IPMSG_ANSPUBKEY
             }
 
-            // IPMSG_ANSPUBKEY: 应答公钥
-            msg_type::IPMSG_ANSPUBKEY => {
+            // IPMSG_ANSPUBKEY: 应答公钥 (0x00000081)
+            msg_type:: IPMSG_ANSPUBKEY => {
                 self.handle_public_key_response(proto_msg, sender_ip)?;
             }
 
             // ========== Unknown Message Types ==========
             _ => {
                 tracing::warn!(
-                    "⚠️ Unhandled message type: mode=0x{:02x} from {}, content={}",
+                    "⚠️ Unhandled message type: mode=0x{:02x}, msg_type=0x{:08x} from {}, content={}",
                     mode,
+                    proto_msg.msg_type,
                     sender_ip,
                     proto_msg.content.chars().take(50).collect::<String>()
                 );
@@ -487,35 +494,6 @@ impl MessageHandler {
         sender_ip: IpAddr,
         local_ip: IpAddr,
     ) -> Result<()> {
-        // Check if sender is already in contacts by IP address
-        let sender_ip_str = sender_ip.to_string();
-        let mut should_add_contact = false;
-
-        // Check existing contacts using contact_repo (with runtime for async)
-        if let Some(ref contact_repo) = self.contact_repo {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
-
-            let existing_contacts = rt.block_on(async {
-                contact_repo
-                    .find_all(Some(crate::storage::contact_repo::ContactFilters {
-                        search: Some(sender_ip_str.clone()),
-                        is_online: None,
-                        is_favorite: None,
-                        department: None,
-                        group_id: None,
-                    }))
-                    .await
-            })?;
-
-            should_add_contact = existing_contacts.is_empty();
-            tracing::debug!(
-                "📋 [AUTO-ADD] Checked contacts for {}: exists={}",
-                sender_ip,
-                !should_add_contact
-            );
-        }
-
         // Store to database
         if let Some(ref repo) = self.message_repo {
             let message_model = MessageModel {
@@ -542,58 +520,6 @@ impl MessageHandler {
                 "💾 Message stored to database: msg_id={}",
                 proto_msg.packet_id
             );
-
-            // Auto-add sender to contacts if not already exists
-            if should_add_contact {
-                if let Some(ref contact_repo) = self.contact_repo {
-                    tracing::info!(
-                        "📝 [AUTO-ADD] Adding sender to contacts: {}@{} (not in database)",
-                        sender_ip,
-                        proto_msg.sender_name
-                    );
-
-                    // Create new contact using the repository
-                    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                        NeoLanError::Other(format!("Failed to create runtime: {}", e))
-                    })?;
-
-                    let new_contact = crate::storage::contact_repo::CreateContact {
-                        peer_id: None,
-                        name: proto_msg.sender_name.clone(),
-                        nickname: None, // Don't have hostname from peer manager
-                        avatar: None,
-                        phone: None,
-                        email: None,
-                        department: None,
-                        position: None,
-                        notes: None,
-                        pinyin: None,
-                    };
-
-                    rt.block_on(async {
-                        let _ = contact_repo.create(new_contact).await.map_err(|e| {
-                            NeoLanError::Storage(format!("Failed to insert contact: {}", e))
-                        })?;
-                        Ok::<(), NeoLanError>(())
-                    })?;
-
-                    tracing::info!(
-                        "✅ [AUTO-ADD] Contact added to database: {} (peer_ip: {})",
-                        proto_msg.sender_name,
-                        sender_ip
-                    );
-                } else {
-                    tracing::warn!(
-                        "⚠️ [AUTO-ADD] Contact repository not available, skipping contact creation"
-                    );
-                }
-            } else {
-                tracing::debug!(
-                    "📋 [AUTO-ADD] Sender {} already in contacts (peer_ip: {}), skipping contact creation",
-                    proto_msg.sender_name,
-                    sender_ip,
-                );
-            }
         } else {
             tracing::warn!("⚠️ [AUTO-ADD] Message repository not available - contact not created");
         }
