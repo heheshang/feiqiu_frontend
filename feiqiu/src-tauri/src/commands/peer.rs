@@ -136,6 +136,7 @@ pub fn get_peers(state: tauri::State<AppState>) -> Result<Vec<PeerDto>> {
 
     let peers = state.get_peers();
     let dtos: Vec<PeerDto> = peers.iter().map(PeerDto::from_peer_node).collect();
+    tracing::debug!("Returning {} peers data:{:?}", dtos.len(),dtos);
 
     Ok(dtos)
 }

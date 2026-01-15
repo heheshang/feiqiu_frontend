@@ -122,44 +122,6 @@ function App() {
     }
   }, [config])
 
-  // Auto-add peer to contacts when receiving message from new peer
-  useEffect(() => {
-    const messageReceivedUnsub = onEvent<MessageReceivedEvent>('message_received', async (event) => {
-      const senderIp = event.message.sender_ip
-      const senderName = event.message.sender_name
-
-      // Check if sender is already in contacts by name or ip
-      const existingContact = contacts.find(c =>
-        c.name === senderName || c.name.includes(senderIp)
-      )
-
-      if (!existingContact) {
-        // Find the peer to get additional info
-        const peer = peers.find(p => p.ip === senderIp)
-        if (peer) {
-          try {
-            // Create new contact from peer (note: peer.id is string IP address, don't use as peerId)
-            const newContact: CreateContactInput = {
-              name: senderName,
-              nickname: peer.nickname || undefined,
-              avatar: peer.avatar || undefined,
-              // peerId not set because it requires database ID, not IP string
-            }
-
-            await contactsApi.createContact(newContact)
-            console.log(`[Auto-add] Added contact: ${senderName} (${senderIp})`)
-          } catch (error) {
-            console.error(`[Auto-add] Failed to add contact: ${senderName}`, error)
-          }
-        }
-      }
-    })
-
-    return () => {
-      messageReceivedUnsub.remove()
-    }
-  }, [contacts, peers])
-
   // Auto-select first conversation on mount
   useEffect(() => {
     if (peers.length > 0 && !activeConversationId) {

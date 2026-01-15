@@ -190,25 +190,7 @@ export function usePeers(options: UsePeersOptions = {}): UsePeersResult {
     fetchPeers()
   }, [fetchPeers])
 
-  /**
-   * Setup polling for periodic refresh
-   */
-  useEffect(() => {
-    if (!enabled || refreshInterval <= 0) {
-      return
-    }
 
-    pollingIntervalRef.current = setInterval(() => {
-      fetchPeers()
-    }, refreshInterval)
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
-      }
-    }
-  }, [enabled, refreshInterval, fetchPeers])
 
   /**
    * Cleanup on unmount
