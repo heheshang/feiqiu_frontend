@@ -7,8 +7,8 @@
 //   - FOREIGN KEY (group_id) REFERENCES contact_groups_ref (id)
 // Since these ref tables don't exist, INSERT operations fail silently
 
+use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use sea_orm_migration::prelude::*;
-use sea_orm::{ConnectionTrait, Statement, DbBackend};
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -57,8 +57,10 @@ async fn fix_contacts_table(db: &dyn ConnectionTrait) -> Result<(), DbErr> {
             updated_at TIMESTAMP_TEXT NULL,
             peer_ip VARCHAR NULL
         );
-        "#.to_string(),
-    )).await?;
+        "#
+        .to_string(),
+    ))
+    .await?;
 
     // Step 2: Copy data from old contacts table to new one
     db.execute(Statement::from_string(
@@ -68,20 +70,24 @@ async fn fix_contacts_table(db: &dyn ConnectionTrait) -> Result<(), DbErr> {
         SELECT id, peer_id, name, nickname, avatar, phone, email, department, position, notes,
                is_favorite, pinyin, is_online, last_seen, created_at, updated_at, peer_ip
         FROM contacts;
-        "#.to_string(),
-    )).await?;
+        "#
+        .to_string(),
+    ))
+    .await?;
 
     // Step 3: Drop the old contacts table
     db.execute(Statement::from_string(
         DbBackend::Sqlite,
         "DROP TABLE contacts;".to_string(),
-    )).await?;
+    ))
+    .await?;
 
     // Step 4: Rename the new table to contacts
     db.execute(Statement::from_string(
         DbBackend::Sqlite,
         "ALTER TABLE contacts_new RENAME TO contacts;".to_string(),
-    )).await?;
+    ))
+    .await?;
 
     // Step 5: Recreate indexes
     db.execute(Statement::from_string(
@@ -94,8 +100,10 @@ async fn fix_contacts_table(db: &dyn ConnectionTrait) -> Result<(), DbErr> {
         CREATE INDEX idx_contacts_is_favorite ON contacts (is_favorite);
         CREATE INDEX idx_contacts_is_online ON contacts (is_online);
         CREATE INDEX idx_contacts_peer_ip ON contacts (peer_ip);
-        "#.to_string(),
-    )).await?;
+        "#
+        .to_string(),
+    ))
+    .await?;
 
     Ok(())
 }
@@ -111,8 +119,10 @@ async fn fix_contact_group_members_table(db: &dyn ConnectionTrait) -> Result<(),
             group_id INTEGER NOT NULL,
             joined_at TIMESTAMP_TEXT NOT NULL
         );
-        "#.to_string(),
-    )).await?;
+        "#
+        .to_string(),
+    ))
+    .await?;
 
     // Step 2: Copy data from old table to new one
     db.execute(Statement::from_string(
@@ -121,20 +131,24 @@ async fn fix_contact_group_members_table(db: &dyn ConnectionTrait) -> Result<(),
         INSERT INTO contact_group_members_new
         SELECT id, contact_id, group_id, joined_at
         FROM contact_group_members;
-        "#.to_string(),
-    )).await?;
+        "#
+        .to_string(),
+    ))
+    .await?;
 
     // Step 3: Drop the old table
     db.execute(Statement::from_string(
         DbBackend::Sqlite,
         "DROP TABLE contact_group_members;".to_string(),
-    )).await?;
+    ))
+    .await?;
 
     // Step 4: Rename the new table
     db.execute(Statement::from_string(
         DbBackend::Sqlite,
         "ALTER TABLE contact_group_members_new RENAME TO contact_group_members;".to_string(),
-    )).await?;
+    ))
+    .await?;
 
     // Step 5: Recreate indexes
     db.execute(Statement::from_string(

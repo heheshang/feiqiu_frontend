@@ -75,6 +75,22 @@ impl FileTransferManager {
         self.tcp_port_start
     }
 
+    /// Get the configured TCP port range for file transfers
+    ///
+    /// # Returns
+    /// * `(u16, u16)` - Tuple of (start_port, end_port)
+    pub fn get_tcp_port_range(&self) -> (u16, u16) {
+        (self.tcp_port_start, self.tcp_port_end)
+    }
+
+    /// Get the number of available TCP ports for file transfers
+    ///
+    /// # Returns
+    /// * `u16` - Number of ports in the configured range
+    pub fn get_tcp_port_count(&self) -> u16 {
+        self.tcp_port_end - self.tcp_port_start + 1
+    }
+
     /// Send a file transfer request to a peer
     ///
     /// # Arguments
@@ -399,6 +415,34 @@ mod tests {
         let removed = manager.cleanup_finished_tasks();
         assert_eq!(removed, 1);
         assert_eq!(manager.get_tasks().len(), 0);
+    }
+
+    #[test]
+    fn test_tcp_port_range() {
+        // Create UDP transport
+        let udp = Arc::new(UdpTransport::bind(0).unwrap());
+
+        // Create manager with known port range
+        let manager = FileTransferManager::new(
+            udp,
+            "TestUser".to_string(),
+            "test-host".to_string(),
+            8000, // tcp_port_start
+            9000, // tcp_port_end
+        );
+
+        // Test get_tcp_port_range
+        let (start, end) = manager.get_tcp_port_range();
+        assert_eq!(start, 8000);
+        assert_eq!(end, 9000);
+
+        // Test get_tcp_port_count
+        let count = manager.get_tcp_port_count();
+        assert_eq!(count, 1001); // 9000 - 8000 + 1
+
+        // Test get_next_tcp_port
+        let next_port = manager.get_next_tcp_port();
+        assert_eq!(next_port, 8000);
     }
 
     #[test]

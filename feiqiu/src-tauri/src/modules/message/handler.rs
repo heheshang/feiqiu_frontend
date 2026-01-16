@@ -354,30 +354,30 @@ impl MessageHandler {
         match mode {
             // ========== Text Messages ==========
             // IPMSG_SENDMSG: 发送消息 (0x00000020)
-             msg_type::IPMSG_SENDMSG => {
+            msg_type::IPMSG_SENDMSG => {
                 tracing::debug!("📨 [handle_incoming_message] Routing to handle_text_message");
                 self.handle_text_message(proto_msg, sender_ip, local_ip)?;
             }
 
             // IPMSG_RECVMSG: 接收确认（对方已收到消息） (0x00000040)
-            msg_type:: IPMSG_RECVMSG => {
+            msg_type::IPMSG_RECVMSG => {
                 tracing::debug!("📨 [handle_incoming_message] Routing to handle_recv_msg");
                 self.handle_recv_msg(proto_msg, sender_ip)?;
             }
 
             // ========== Message Read/Delete Status ==========
             // IPMSG_READMSG: 消息已读 (0x00000050)
-             msg_type::IPMSG_READMSG => {
+            msg_type::IPMSG_READMSG => {
                 self.handle_read_msg(proto_msg, sender_ip)?;
             }
 
             // IPMSG_DELMSG: 删除消息 (0x00000060)
-             msg_type::IPMSG_DELMSG => {
+            msg_type::IPMSG_DELMSG => {
                 self.handle_del_msg(proto_msg, sender_ip)?;
             }
 
             // IPMSG_ANSREADMSG: 对已读消息的应答 (0x00000051)
-             msg_type::IPMSG_ANSREADMSG => {
+            msg_type::IPMSG_ANSREADMSG => {
                 self.handle_answer_read_msg(proto_msg, sender_ip)?;
             }
 
@@ -402,7 +402,7 @@ impl MessageHandler {
             }
 
             // IPMSG_BR_ABSENCE: 广播缺席状态 (0x00000004)
-            msg_type:: IPMSG_BR_ABSENCE => {
+            msg_type::IPMSG_BR_ABSENCE => {
                 tracing::info!("🏖️ Absence status broadcast from {}", sender_ip);
                 // TODO: Update peer absence status in PeerManager
             }
@@ -410,78 +410,78 @@ impl MessageHandler {
             // ========== Peer List Management ==========
             // IPMSG_BR_ISGETLIST: 请求是否需要列表 (0x00000010)
             // IPMSG_BR_ISGETLIST2: 请求是否需要列表 v2 (0x00000012)
-            msg_type:: IPMSG_BR_ISGETLIST |  msg_type::IPMSG_BR_ISGETLIST2 => {
+            msg_type::IPMSG_BR_ISGETLIST | msg_type::IPMSG_BR_ISGETLIST2 => {
                 tracing::info!("📋 Peer list request from {}", sender_ip);
                 // TODO: Send response with IPMSG_OKGETLIST
             }
 
             // IPMSG_OKGETLIST: 同意发送列表 (0x00000011)
-             msg_type::IPMSG_OKGETLIST => {
+            msg_type::IPMSG_OKGETLIST => {
                 tracing::info!("✅ Peer list approval from {}", sender_ip);
                 // TODO: Proceed to send IPMSG_GETLIST
             }
 
             // IPMSG_GETLIST: 请求列表 (0x00000013)
-             msg_type::IPMSG_GETLIST => {
+            msg_type::IPMSG_GETLIST => {
                 tracing::info!("📋 Get list request from {}", sender_ip);
                 // TODO: Send peer list with IPMSG_ANSLIST
             }
 
             // IPMSG_ANSLIST: 返回列表 (0x00000014)
-             msg_type::IPMSG_ANSLIST => {
+            msg_type::IPMSG_ANSLIST => {
                 self.handle_peer_list_response(proto_msg, sender_ip)?;
             }
 
             // ========== User Information ==========
             // IPMSG_GETINFO: 请求用户信息 (0x00000070)
-             msg_type::IPMSG_GETINFO => {
+            msg_type::IPMSG_GETINFO => {
                 tracing::info!("ℹ️ User info request from {}", sender_ip);
                 // TODO: Send user info with IPMSG_SENDINFO
             }
 
             // IPMSG_SENDINFO: 发送用户信息 (0x00000071)
-             msg_type::IPMSG_SENDINFO => {
+            msg_type::IPMSG_SENDINFO => {
                 self.handle_user_info(proto_msg, sender_ip)?;
             }
 
             // ========== Absence Information ==========
             // IPMSG_GETABSENCEINFO: 请求缺席信息 (0x00000072)
-             msg_type::IPMSG_GETABSENCEINFO => {
+            msg_type::IPMSG_GETABSENCEINFO => {
                 tracing::info!("🏖️ Absence info request from {}", sender_ip);
                 // TODO: Send absence info with IPMSG_SENDABSENCEINFO
             }
 
             // IPMSG_SENDABSENCEINFO: 发送缺席信息 (0x00000073)
-             msg_type::IPMSG_SENDABSENCEINFO => {
+            msg_type::IPMSG_SENDABSENCEINFO => {
                 self.handle_absence_info(proto_msg, sender_ip)?;
             }
 
             // ========== File Transfer ==========
             // IPMSG_GETFILEDATA: 请求文件数据（文件传输） (0x00000060)
-            msg_type:: IPMSG_GETFILEDATA => {
+            msg_type::IPMSG_GETFILEDATA => {
                 self.handle_file_transfer_request(proto_msg, sender_ip)?;
             }
 
             // IPMSG_RELEASEFILES: 释放文件资源 (0x00000061)
-             msg_type::IPMSG_RELEASEFILES => {
+            msg_type::IPMSG_RELEASEFILES => {
                 self.handle_release_files(proto_msg, sender_ip)?;
             }
 
             // IPMSG_GETDIRFILES: 请求目录文件列表 (0x00000062)
-             msg_type::IPMSG_GETDIRFILES => {
+            msg_type::IPMSG_GETDIRFILES => {
                 tracing::info!("📁 Directory file list request from {}", sender_ip);
                 // TODO: Handle directory file list request
             }
 
             // ========== Encryption ==========
             // IPMSG_GETPUBKEY: 请求公钥 (0x00000080)
-             msg_type::IPMSG_GETPUBKEY => {
+            msg_type::IPMSG_GETPUBKEY => {
                 tracing::info!("🔑 Public key request from {}", sender_ip);
                 // TODO: Send public key with IPMSG_ANSPUBKEY
             }
 
             // IPMSG_ANSPUBKEY: 应答公钥 (0x00000081)
-            msg_type:: IPMSG_ANSPUBKEY => {
+            msg_type::IPMSG_ANSPUBKEY => {
                 self.handle_public_key_response(proto_msg, sender_ip)?;
             }
 
@@ -511,9 +511,8 @@ impl MessageHandler {
     fn handle_peer_online(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         // 1. Update peers table via peer_repo using upsert
         if let Some(ref peer_repo) = self.peer_repo {
-            let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                NeoLanError::Other(format!("Failed to create runtime: {}", e))
-            })?;
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
 
             // Use upsert to handle both insert and update cases properly
             // Returns the created/updated peer with its database ID
@@ -540,7 +539,11 @@ impl MessageHandler {
             if let Some(ref contact_repo) = self.contact_repo {
                 let peer_id = peer.id;
                 rt.block_on(async { contact_repo.sync_from_peers(vec![peer]).await })?;
-                tracing::info!("✅ Contact synced for peer: {} (peer_id={})", sender_ip, peer_id);
+                tracing::info!(
+                    "✅ Contact synced for peer: {} (peer_id={})",
+                    sender_ip,
+                    peer_id
+                );
             }
         } else {
             tracing::warn!("⚠️ Peer repository not available - cannot store peer");
@@ -567,9 +570,8 @@ impl MessageHandler {
     #[instrument(skip(self, _proto_msg), fields(sender_ip = %sender_ip))]
     fn handle_peer_offline(&self, _proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         if let Some(ref peer_repo) = self.peer_repo {
-            let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                NeoLanError::Other(format!("Failed to create runtime: {}", e))
-            })?;
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
 
             // Update last_seen (will mark as offline by timeout)
             rt.block_on(async { peer_repo.update_last_seen(&sender_ip.to_string()).await })?;

@@ -134,6 +134,7 @@ impl Message {
     /// );
     /// let msg = Message::new_text(sender, receiver, "Hello World");
     /// ```
+    #[allow(dead_code)]
     pub fn new_text(sender: PeerInfo, receiver: PeerInfo, content: String) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -147,6 +148,7 @@ impl Message {
     }
 
     /// Create a new file transfer request message
+    #[allow(dead_code)]
     pub fn new_file_request(sender: PeerInfo, receiver: PeerInfo, content: String) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -168,6 +170,7 @@ impl Message {
     ///
     /// # Returns
     /// A new Message instance with data from the protocol message
+    #[allow(dead_code)]
     pub fn from_protocol(
         proto_msg: &ProtocolMessage,
         sender: PeerInfo,
@@ -226,16 +229,19 @@ impl Message {
     }
 
     /// Get message size in bytes
+    #[allow(dead_code)]
     pub fn size(&self) -> usize {
         self.content.len()
     }
 
     /// Check if this is a text message
+    #[allow(dead_code)]
     pub fn is_text(&self) -> bool {
         self.msg_type == MessageType::Text
     }
 
     /// Check if this is a file transfer message
+    #[allow(dead_code)]
     pub fn is_file_transfer(&self) -> bool {
         matches!(
             self.msg_type,
@@ -244,6 +250,7 @@ impl Message {
     }
 
     /// Check if message is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.content.trim().is_empty()
     }

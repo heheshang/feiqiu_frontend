@@ -457,15 +457,14 @@ impl ContactRepository {
                 active.is_online = Set(true);
                 active.last_seen = Set(Some(now));
 
-                active
-                    .update(&self.db)
-                    .await
-                    .map_err(|e| NeoLanError::Storage(format!("Failed to update contact: {}", e)))?;
+                active.update(&self.db).await.map_err(|e| {
+                    NeoLanError::Storage(format!("Failed to update contact: {}", e))
+                })?;
             } else {
                 // Create new contact from peer
                 let now = chrono::Utc::now().naive_utc();
                 let new_contact = contacts::ActiveModel {
-                    peer_id: Set(Some(peer.id.clone())), 
+                    peer_id: Set(Some(peer.id.clone())),
                     peer_ip: Set(Some(peer.ip.clone())),
                     name: Set(peer
                         .username
@@ -485,10 +484,9 @@ impl ContactRepository {
                     ..Default::default()
                 };
 
-                new_contact
-                    .insert(&self.db)
-                    .await
-                    .map_err(|e| NeoLanError::Storage(format!("Failed to create contact from peer: {}", e)))?;
+                new_contact.insert(&self.db).await.map_err(|e| {
+                    NeoLanError::Storage(format!("Failed to create contact from peer: {}", e))
+                })?;
             }
         }
 

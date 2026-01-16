@@ -270,8 +270,15 @@ impl AppState {
     /// Get the peer repository
     ///
     /// Returns None if database hasn't been initialized.
-    pub fn get_peer_repo(&self) -> Option<PeerRepository> {
-        self.peer_repo.lock().unwrap().as_ref().cloned()
+    /// Returns Arc<PeerRepository> for efficient cloning.
+    pub fn get_peer_repo(&self) -> Option<Arc<PeerRepository>> {
+        // We need to create a new Arc from the cloned repository
+        // Since PeerRepository is Clone, we can clone it and wrap in Arc
+        self.peer_repo
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|repo| Arc::new(repo.clone()))
     }
 
     /// Get the contact repository
@@ -309,7 +316,6 @@ impl AppState {
         }
     }
 
-
     /// Get the peer manager
     ///
     /// Returns a cloned reference to the peer manager for direct access.
@@ -339,21 +345,7 @@ impl AppState {
     ///
     /// Updates the in-memory configuration and persists it to the database asynchronously.
     pub fn set_config(&self, config: AppConfig) {
-        let repo = self.get_config_repo();
-        let config_clone = config.clone();
-
-        // Persist to database asynchronously in a background thread
-        if let Some(repo) = repo {
-            std::thread::spawn(move || {
-                // Create a new runtime for this thread
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async move {
-                    if let Err(e) = repo.save_app_config(&config_clone).await {
-                        tracing::error!("Failed to save config: {}", e);
-                    }
-                });
-            });
-        }
+        self.persist_config_async(&config);
 
         // Update in-memory config
         *self.config.lock().unwrap() = config;
@@ -372,9 +364,18 @@ impl AppState {
         let config_clone = config.clone();
         drop(config);
 
-        // Persist to database asynchronously in a background thread
-        let repo = self.get_config_repo();
-        if let Some(repo) = repo {
+        self.persist_config_async(&config_clone);
+        self.emit_event(super::events::AppEvent::ConfigChanged);
+        Ok(())
+    }
+
+    /// Persist configuration to database asynchronously
+    ///
+    /// This helper method spawns a background thread to persist the configuration
+    /// without blocking the main thread.
+    fn persist_config_async(&self, config: &AppConfig) {
+        if let Some(repo) = self.get_config_repo() {
+            let config_clone = config.clone();
             std::thread::spawn(move || {
                 // Create a new runtime for this thread
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -385,9 +386,6 @@ impl AppState {
                 });
             });
         }
-
-        self.emit_event(super::events::AppEvent::ConfigChanged);
-        Ok(())
     }
 
     /// Initialize the peer manager

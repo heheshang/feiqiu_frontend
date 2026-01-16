@@ -480,7 +480,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_configDto_default() {
+    fn test_config_dto_default() {
         let config = ConfigDto::default();
 
         assert_eq!(config.udp_port, 2425);
@@ -493,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn test_configDto_validate() {
+    fn test_config_dto_validate() {
         let mut config = ConfigDto::default();
 
         // Valid config
@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn test_configDto_to_map() {
+    fn test_config_dto_to_map() {
         let config = ConfigDto::default();
         let map = config.to_map();
 
@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn test_configDto_from_map() {
+    fn test_config_dto_from_map() {
         let mut map = HashMap::new();
         map.insert("username".to_string(), "Alice".to_string());
         map.insert("udp_port".to_string(), "2426".to_string());

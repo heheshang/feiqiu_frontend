@@ -136,7 +136,7 @@ pub fn get_peers(state: tauri::State<AppState>) -> Result<Vec<PeerDto>> {
 
     let peers = state.get_peers();
     let dtos: Vec<PeerDto> = peers.iter().map(PeerDto::from_peer_node).collect();
-    tracing::debug!("Returning {} peers data:{:?}", dtos.len(),dtos);
+    tracing::debug!("Returning {} peers data:{:?}", dtos.len(), dtos);
 
     Ok(dtos)
 }
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_peerDto_from_addr() {
+    fn test_peer_dto_from_addr() {
         let ip: IpAddr = "192.168.1.100".parse().unwrap();
         let dto = PeerDto::from_addr(ip, 2425);
 
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn test_peerDto_new() {
+    fn test_peer_dto_new() {
         let dto = PeerDto::new(
             "192.168.1.100".to_string(),
             2425,

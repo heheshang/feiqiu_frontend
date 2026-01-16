@@ -19,7 +19,6 @@ use sea_orm::DatabaseConnection;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 use tauri::{App, Emitter};
 
 /// Bootstrap result containing initialized AppState and event receiver
@@ -206,7 +205,6 @@ pub fn init_network(
     // Start peer discovery
     start_peer_manager(app_state.clone());
 
-
     Ok(())
 }
 
@@ -254,12 +252,14 @@ fn init_message_handler(app_state: &AppState, udp_send: UdpTransport, config: &A
 
     let mut handler = MessageHandler::new(udp_send, config.clone()).with_app_state(app_state_arc);
 
-    // Inject peer repository
+    // Inject peer repository (already wrapped in Arc)
     if let Some(repo) = peer_repo {
-        handler = handler.with_peer_repo(Arc::new(repo));
+        handler = handler.with_peer_repo(repo);
         tracing::info!("Peer repository injected into MessageHandler");
     } else {
-        tracing::warn!("⚠️ Peer repository not available - peer discovery will not persist to database");
+        tracing::warn!(
+            "⚠️ Peer repository not available - peer discovery will not persist to database"
+        );
     }
 
     // Inject contact repository
@@ -311,7 +311,13 @@ fn init_peer_manager(
         discovery.hostname()
     );
 
-    let peer_manager = PeerManager::new(discovery);
+    // Get peer repository from app state
+    let peer_repo = app_state.get_peer_repo().expect(
+        "Peer repository must be initialized before PeerManager. \
+         Ensure init_database() is called first.",
+    );
+
+    let peer_manager = PeerManager::new(discovery, peer_repo);
     peer_manager.set_message_handler_channel(message_route_tx);
     app_state.init_peer_manager(peer_manager);
     tracing::info!("PeerManager initialized");
@@ -326,4 +332,3 @@ fn start_peer_manager(app_state: AppState) {
         tracing::info!("PeerManager thread ended");
     });
 }
-
