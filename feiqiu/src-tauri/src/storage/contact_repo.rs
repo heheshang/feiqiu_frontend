@@ -19,6 +19,7 @@ pub struct CreateContact {
     pub position: Option<String>,
     pub notes: Option<String>,
     pub pinyin: Option<String>,
+    pub ip_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +34,8 @@ pub struct UpdateContact {
     pub notes: Option<String>,
     pub pinyin: Option<String>,
     pub is_favorite: Option<bool>,
+    pub ip_address: Option<String>,
+    pub peer_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +149,7 @@ impl ContactRepository {
             is_favorite: Set(false),
             pinyin: Set(contact.pinyin),
             is_online: Set(true),
+            peer_ip: Set(contact.ip_address),
             last_seen: Set(Some(now)),
             created_at: Set(now),
             ..Default::default()
@@ -200,6 +204,12 @@ impl ContactRepository {
         }
         if let Some(is_favorite) = contact.is_favorite {
             active.is_favorite = Set(is_favorite);
+        }
+        if let Some(ip_address) = contact.ip_address {
+            active.peer_ip = Set(Some(ip_address));
+        }
+        if let Some(peer_id) = contact.peer_id {
+            active.peer_id = Set(Some(peer_id));
         }
 
         let now = chrono::Utc::now().naive_utc();

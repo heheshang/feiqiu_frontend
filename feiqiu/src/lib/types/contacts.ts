@@ -56,6 +56,8 @@ export interface Contact {
   pinyin?: string
   /** Online status */
   isOnline: boolean
+  /** IP address of the peer (if known/linked) */
+  ipAddress?: string
   /** Last seen timestamp (milliseconds since epoch) */
   lastSeen?: number
   /** Creation timestamp (milliseconds since epoch) */
@@ -142,6 +144,8 @@ export interface CreateContactInput {
   notes?: string
   /** Pinyin for Chinese name search */
   pinyin?: string
+  /** IP address of the peer (if known) */
+  ipAddress?: string
 }
 
 /**
@@ -169,6 +173,10 @@ export interface UpdateContactInput {
   pinyin?: string
   /** Whether marked as favorite */
   isFavorite?: boolean
+  /** IP address of the peer (if known) */
+  ipAddress?: string
+  /** Reference to peer ID (if linking to a network peer) */
+  peerId?: number
 }
 
 /**

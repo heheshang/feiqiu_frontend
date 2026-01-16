@@ -53,3 +53,5 @@ Thumbs.db
 *.pid.lock
 .turbo/
 target/*
+openspec/nul
+nul

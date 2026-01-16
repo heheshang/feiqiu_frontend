@@ -10,6 +10,8 @@ import { ContactList } from './ContactList'
 import { GroupManagement } from './GroupManagement'
 import { CreateContactDialog, EditContactDialog, ContactDetailDialog } from './ContactDialogs'
 import { useContacts } from '@/hooks/useContacts'
+import { usePeers } from '@/hooks/usePeers'
+import { findPeerForContact } from '@/lib/api/contacts'
 import type { Contact, ContactGroup, CreateContactInput, UpdateContactInput } from '@/lib/types/contacts'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +43,8 @@ export function Contacts({ onStartConversation }: ContactsProps) {
     enabled: true,
     refreshInterval: 0,
   })
+
+  const { peers } = usePeers({ enabled: true })
 
   const [activeTab, setActiveTab] = useState<Tab>('contacts')
 
@@ -90,12 +94,32 @@ export function Contacts({ onStartConversation }: ContactsProps) {
   }
 
   // Message handler
-  const handleSendMessage = (contact: Contact) => {
-    // Start conversation with this contact
-    if (contact.peerId && onStartConversation) {
-      onStartConversation(contact.peerId.toString())
+  const handleSendMessage = async (contact: Contact) => {
+    // Try to find peer for this contact using multiple strategies
+    const peer = findPeerForContact(contact, peers)
+
+    if (peer && onStartConversation) {
+      // If we found a peer by IP or name, update contact with peer info
+      if (contact.ipAddress !== peer.ip) {
+        await updateContact(contact.id, {
+          ipAddress: peer.ip,
+        }).catch(err => console.error('Failed to update contact IP:', err))
+      }
+      onStartConversation(peer.ip)
+      setShowDetailDialog(false)
+    } else {
+      // No peer found - show notification
+      showNotification('该联系人当前不在线，无法发送消息', 'warning')
+      setShowDetailDialog(false)
     }
-    setShowDetailDialog(false)
+  }
+
+  // Simple notification helper (inline for now)
+  const showNotification = (message: string, type: 'info' | 'warning' | 'error') => {
+    // For now, just log to console - can be enhanced with a toast system later
+    console.log(`[${type.toUpperCase()}] ${message}`)
+    // TODO: Integrate with proper toast notification system
+    alert(message) // Fallback to alert for now
   }
 
   // Group management handlers

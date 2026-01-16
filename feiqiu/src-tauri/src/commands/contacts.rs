@@ -28,6 +28,7 @@ pub struct ContactDto {
     pub is_favorite: bool,
     pub pinyin: Option<String>,
     pub is_online: bool,
+    pub ip_address: Option<String>,
     pub last_seen: Option<i64>,
     pub created_at: i64,
     pub updated_at: Option<i64>,
@@ -50,6 +51,7 @@ impl From<crate::storage::entities::contacts::Model> for ContactDto {
             is_favorite: model.is_favorite,
             pinyin: model.pinyin,
             is_online: model.is_online,
+            ip_address: model.peer_ip,
             last_seen: model.last_seen.map(|dt| dt.and_utc().timestamp_millis()),
             created_at: model.created_at.and_utc().timestamp_millis(),
             updated_at: model.updated_at.map(|dt| dt.and_utc().timestamp_millis()),
@@ -156,6 +158,7 @@ pub struct CreateContactDto {
     pub position: Option<String>,
     pub notes: Option<String>,
     pub pinyin: Option<String>,
+    pub ip_address: Option<String>,
 }
 
 /// Create a new contact
@@ -180,6 +183,7 @@ pub async fn create_contact(
         position: contact.position,
         notes: contact.notes,
         pinyin: contact.pinyin,
+        ip_address: contact.ip_address,
     };
 
     let result = repo.create(new_contact).await.map_err(|e| e.to_string())?;
@@ -201,6 +205,8 @@ pub struct UpdateContactDto {
     pub notes: Option<String>,
     pub pinyin: Option<String>,
     pub is_favorite: Option<bool>,
+    pub ip_address: Option<String>,
+    pub peer_id: Option<i32>,
 }
 
 /// Update an existing contact
@@ -226,6 +232,8 @@ pub async fn update_contact(
         notes: contact.notes,
         pinyin: contact.pinyin,
         is_favorite: contact.is_favorite,
+        ip_address: contact.ip_address,
+        peer_id: contact.peer_id,
     };
 
     let result = repo.update(id, update).await.map_err(|e| e.to_string())?;

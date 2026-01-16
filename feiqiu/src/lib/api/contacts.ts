@@ -32,6 +32,7 @@ interface ContactDto {
   isFavorite: boolean
   pinyin?: string
   isOnline: boolean
+  ipAddress?: string
   lastSeen?: number
   createdAt: number
   updatedAt?: number
@@ -74,6 +75,7 @@ function toFrontendContact(dto: ContactDto): Contact {
     isFavorite: dto.isFavorite,
     pinyin: dto.pinyin,
     isOnline: dto.isOnline,
+    ipAddress: dto.ipAddress,
     lastSeen: dto.lastSeen,
     createdAt: dto.createdAt,
     updatedAt: dto.updatedAt,
@@ -469,6 +471,56 @@ export function getContactInitials(contact: Contact): string {
   return name.slice(0, 2).toUpperCase()
 }
 
+// ==================== Peer Resolution ====================
+
+/**
+ * Finds a peer for a contact using multiple resolution strategies
+ *
+ * Resolution order:
+ * 1. Try contact's peerId (if available)
+ * 2. Try contact's ipAddress (if available and peer is online)
+ * 3. Try finding peer by matching name
+ *
+ * @param contact - The contact to find a peer for
+ * @param peers - Array of available peers to search
+ * @returns The found peer or null if not found
+ */
+export function findPeerForContact(
+  contact: Contact,
+  peers: Array<{ ip: string; name?: string; username?: string; status: string }>
+): { ip: string } | null {
+  // Strategy 1: Try peerId if available
+  // Note: peerId is a database ID, not directly usable for IP lookup
+  // We'll skip this for now as it would require a different backend lookup
+
+  // Strategy 2: Try ipAddress if stored
+  if (contact.ipAddress) {
+    const peerByIp = peers.find(p => p.ip === contact.ipAddress)
+    if (peerByIp) {
+      return peerByIp
+    }
+  }
+
+  // Strategy 3: Try finding peer by name
+  // Try display name, then nickname, then name
+  const searchNames = [
+    contact.nickname,
+    contact.name,
+  ].filter(Boolean) as string[]
+
+  for (const name of searchNames) {
+    const peerByName = peers.find(
+      p => p.name === name || p.username === name
+    )
+    if (peerByName) {
+      return peerByName
+    }
+  }
+
+  // No peer found
+  return null
+}
+
 // ==================== API Object ====================
 
 /**
@@ -515,4 +567,7 @@ export const contactsApi = {
   getRecentContacts,
   getContactDisplayName,
   getContactInitials,
+
+  // Peer Resolution
+  findPeerForContact,
 }
