@@ -135,6 +135,9 @@ impl MigrationTrait for Migration {
             .await?;
 
         // 创建 contact_group_members 表
+        // Note: Foreign keys removed due to sea-orm bug with enum-based table references
+        // The ContactsRef and ContactGroupsRef enums generate "contacts_ref" and "contact_groups_ref"
+        // which don't exist. Application-level validation handles referential integrity.
         manager
             .create_table(
                 Table::create()
@@ -144,22 +147,6 @@ impl MigrationTrait for Migration {
                     .col(integer(ContactGroupMembers::ContactId))
                     .col(integer(ContactGroupMembers::GroupId))
                     .col(timestamp(ContactGroupMembers::JoinedAt))
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_group_members_contact_id")
-                            .from(ContactGroupMembers::Table, ContactGroupMembers::ContactId)
-                            .to(ContactsRef::Table, ContactsRef::Id)
-                            .on_delete(ForeignKeyAction::Cascade)
-                            .on_update(ForeignKeyAction::Cascade),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_group_members_group_id")
-                            .from(ContactGroupMembers::Table, ContactGroupMembers::GroupId)
-                            .to(ContactGroupsRef::Table, ContactGroupsRef::Id)
-                            .on_delete(ForeignKeyAction::Cascade)
-                            .on_update(ForeignKeyAction::Cascade),
-                    )
                     .to_owned(),
             )
             .await?;
@@ -257,17 +244,4 @@ enum ContactGroupMembers {
     ContactId,
     GroupId,
     JoinedAt,
-}
-
-// Foreign key 引用
-#[derive(DeriveIden)]
-enum ContactsRef {
-    Table,
-    Id,
-}
-
-#[derive(DeriveIden)]
-enum ContactGroupsRef {
-    Table,
-    Id,
 }

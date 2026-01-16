@@ -41,7 +41,7 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub pinyin: Option<String>,
 
-    #[sea_orm(column_type = "Text")]
+    #[sea_orm(column_type = "Boolean")]
     pub is_online: bool,
 
     #[sea_orm(column_type = "Text")]

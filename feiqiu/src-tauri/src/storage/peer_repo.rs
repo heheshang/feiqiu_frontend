@@ -23,6 +23,79 @@ impl PeerRepository {
         Self { db }
     }
 
+    /// Insert or update peer by IP address
+    ///
+    /// If peer with the IP exists, updates it. Otherwise inserts a new peer.
+    /// This method properly handles auto-increment for new records.
+    /// Returns the created or updated peer.
+    ///
+    /// # Arguments
+    /// * `ip` - IP address as string
+    /// * `port` - UDP port
+    /// * `username` - Username (optional)
+    /// * `hostname` - Hostname (optional)
+    /// * `last_seen` - Last activity timestamp
+    pub async fn upsert(
+        &self,
+        ip: String,
+        port: i32,
+        username: Option<String>,
+        hostname: Option<String>,
+        last_seen: NaiveDateTime,
+    ) -> Result<PeerModel> {
+        use sea_orm::ActiveValue::NotSet;
+        use sea_orm::ActiveValue::Set;
+
+        if let Some(existing) = self.find_by_ip(&ip).await? {
+            // Update existing peer
+            let mut active: PeerActiveModel = existing.into();
+            active.port = Set(port);
+            active.username = Set(username);
+            active.hostname = Set(hostname);
+            active.last_seen = Set(last_seen);
+            active.updated_at = Set(Some(chrono::Utc::now().naive_utc()));
+
+            PeerEntity::update(active)
+                .exec(&self.db)
+                .await
+                .map_err(|e| NeoLanError::Storage(format!("Failed to update peer: {}", e)))?;
+
+            // Return the updated peer (fetch again to get updated values)
+            let updated = self
+                .find_by_ip(&ip)
+                .await?
+                .ok_or_else(|| NeoLanError::Other("Failed to retrieve updated peer".to_string()))?;
+            Ok(updated)
+        } else {
+            // Insert new peer with NotSet for id (auto-increment)
+            let active = PeerActiveModel {
+                id: NotSet,
+                ip: Set(ip.clone()),
+                port: Set(port),
+                username: Set(username),
+                hostname: Set(hostname),
+                nickname: Set(None),
+                avatar: Set(None),
+                groups: Set(None),
+                last_seen: Set(last_seen),
+                created_at: Set(chrono::Utc::now().naive_utc()),
+                updated_at: Set(Some(chrono::Utc::now().naive_utc())),
+            };
+
+            PeerEntity::insert(active)
+                .exec(&self.db)
+                .await
+                .map_err(|e| NeoLanError::Storage(format!("Failed to insert peer: {}", e)))?;
+
+            // Fetch the inserted peer to get its ID
+            let inserted = self
+                .find_by_ip(&ip)
+                .await?
+                .ok_or_else(|| NeoLanError::Other("Failed to retrieve inserted peer".to_string()))?;
+            Ok(inserted)
+        }
+    }
+
     /// 插入新节点
     ///
     /// 如果 IP 已存在，则更新现有记录

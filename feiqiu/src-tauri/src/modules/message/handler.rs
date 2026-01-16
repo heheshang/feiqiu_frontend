@@ -18,6 +18,7 @@ use crate::state::app_state::TauriEvent;
 use crate::state::AppState;
 use crate::storage::contact_repo::ContactRepository;
 use crate::storage::message_repo::{MessageModel, MessageRepository};
+use crate::storage::peer_repo::{PeerModel, PeerRepository};
 use crate::{NeoLanError, Result};
 use chrono::Utc;
 use std::net::{IpAddr, SocketAddr};
@@ -50,6 +51,9 @@ pub struct MessageHandler {
 
     /// Contact repository for auto-adding contacts (optional)
     contact_repo: Option<Arc<ContactRepository>>,
+
+    /// Peer repository for storing discovered peers (optional)
+    peer_repo: Option<Arc<PeerRepository>>,
 }
 
 impl MessageHandler {
@@ -81,6 +85,7 @@ impl MessageHandler {
             app_state: None,
             file_transfer: None,
             contact_repo: None,
+            peer_repo: None,
         }
     }
 
@@ -106,6 +111,7 @@ impl MessageHandler {
             app_state: None,
             file_transfer: None,
             contact_repo: None,
+            peer_repo: None,
         }
     }
 
@@ -133,6 +139,15 @@ impl MessageHandler {
     /// * `contact_repo` - Contact repository reference
     pub fn with_contact_repo(mut self, contact_repo: Arc<ContactRepository>) -> Self {
         self.contact_repo = Some(contact_repo);
+        self
+    }
+
+    /// Set the peer repository for storing discovered peers
+    ///
+    /// # Arguments
+    /// * `peer_repo` - Peer repository reference
+    pub fn with_peer_repo(mut self, peer_repo: Arc<PeerRepository>) -> Self {
+        self.peer_repo = Some(peer_repo);
         self
     }
 
@@ -367,16 +382,23 @@ impl MessageHandler {
             }
 
             // ========== Peer Discovery Messages ==========
-            // These should be handled by PeerManager through its own discovery callback
-            msg_type:: IPMSG_BR_ENTRY |  msg_type::IPMSG_BR_EXIT |  msg_type::IPMSG_ANSENTRY => {
+            // IPMSG_BR_ENTRY: 广播上线 (0x00000001)
+            // IPMSG_ANSENTRY: 上线应答 (0x00000003)
+            msg_type::IPMSG_BR_ENTRY | msg_type::IPMSG_ANSENTRY => {
                 tracing::debug!(
-                    "📢 Peer discovery message (mode=0x{:02x}), delegating to PeerManager",
-                    mode
+                    "📢 BR_ENTRY/ANSENTRY from {} - updating peers and contacts",
+                    sender_ip
                 );
+                self.handle_peer_online(proto_msg, sender_ip)?;
+            }
 
-                
-                // PeerManager will handle these through its own discovery callback
-                // No action needed here - the message is already logged
+            // IPMSG_BR_EXIT: 广播下线 (0x00000002)
+            msg_type::IPMSG_BR_EXIT => {
+                tracing::debug!(
+                    "📴 BR_EXIT from {} - updating peers and contacts",
+                    sender_ip
+                );
+                self.handle_peer_offline(proto_msg, sender_ip)?;
             }
 
             // IPMSG_BR_ABSENCE: 广播缺席状态 (0x00000004)
@@ -473,6 +495,95 @@ impl MessageHandler {
                     proto_msg.content.chars().take(50).collect::<String>()
                 );
             }
+        }
+
+        Ok(())
+    }
+
+    /// Handle peer online (BR_ENTRY or ANSENTRY)
+    ///
+    /// Updates peers table and syncs to contacts table.
+    ///
+    /// # Arguments
+    /// * `proto_msg` - Protocol message
+    /// * `sender_ip` - Sender's IP address
+    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, sender_name = %proto_msg.sender_name))]
+    fn handle_peer_online(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
+        // 1. Update peers table via peer_repo using upsert
+        if let Some(ref peer_repo) = self.peer_repo {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                NeoLanError::Other(format!("Failed to create runtime: {}", e))
+            })?;
+
+            // Use upsert to handle both insert and update cases properly
+            // Returns the created/updated peer with its database ID
+            let peer = rt.block_on(async {
+                peer_repo
+                    .upsert(
+                        sender_ip.to_string(),
+                        self.config.udp_port as i32,
+                        Some(proto_msg.sender_name.clone()),
+                        Some(proto_msg.sender_host.clone()),
+                        chrono::Utc::now().naive_utc(),
+                    )
+                    .await
+            })?;
+
+            tracing::info!(
+                "✅ Peer stored in database: {} (id={}) ({})",
+                sender_ip,
+                peer.id,
+                proto_msg.sender_name
+            );
+
+            // 2. Sync to contacts table via contact_repo
+            if let Some(ref contact_repo) = self.contact_repo {
+                let peer_id = peer.id;
+                rt.block_on(async { contact_repo.sync_from_peers(vec![peer]).await })?;
+                tracing::info!("✅ Contact synced for peer: {} (peer_id={})", sender_ip, peer_id);
+            }
+        } else {
+            tracing::warn!("⚠️ Peer repository not available - cannot store peer");
+        }
+
+        // 3. Emit Tauri event for frontend
+        if let Some(ref app_state) = self.app_state {
+            app_state.emit_tauri_event(TauriEvent::PeerOnline {
+                peer_ip: sender_ip.to_string(),
+                username: Some(proto_msg.sender_name.clone()),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Handle peer offline (BR_EXIT)
+    ///
+    /// Marks peer as offline and updates contact status.
+    ///
+    /// # Arguments
+    /// * `_proto_msg` - Protocol message (unused but kept for consistency)
+    /// * `sender_ip` - Sender's IP address
+    #[instrument(skip(self, _proto_msg), fields(sender_ip = %sender_ip))]
+    fn handle_peer_offline(&self, _proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
+        if let Some(ref peer_repo) = self.peer_repo {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                NeoLanError::Other(format!("Failed to create runtime: {}", e))
+            })?;
+
+            // Update last_seen (will mark as offline by timeout)
+            rt.block_on(async { peer_repo.update_last_seen(&sender_ip.to_string()).await })?;
+
+            tracing::info!("✅ Peer marked offline in database: {}", sender_ip);
+        } else {
+            tracing::warn!("⚠️ Peer repository not available - cannot update peer");
+        }
+
+        // Emit Tauri event
+        if let Some(ref app_state) = self.app_state {
+            app_state.emit_tauri_event(TauriEvent::PeerOffline {
+                peer_ip: sender_ip.to_string(),
+            });
         }
 
         Ok(())

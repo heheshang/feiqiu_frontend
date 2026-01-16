@@ -2,7 +2,8 @@
 use crate::error::NeoLanError;
 use crate::storage::entities::{contact_group_members, contact_groups, contacts, peers};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, NotSet, QueryFilter,
+    QueryOrder, Set,
 };
 use serde::{Deserialize, Serialize};
 
@@ -432,9 +433,9 @@ impl ContactRepository {
 
     pub async fn sync_from_peers(&self, peer_models: Vec<peers::Model>) -> Result<(), NeoLanError> {
         for peer in peer_models {
-            // Check if contact already exists for this peer
+            // Check if contact already exists for this peer by peer_ip
             let existing = contacts::Entity::find()
-                .filter(contacts::Column::PeerId.eq(peer.id))
+                .filter(contacts::Column::PeerIp.eq(&peer.ip))
                 .one(&self.db)
                 .await
                 .map_err(|e| NeoLanError::Storage(format!("Failed to check contact: {}", e)))?;
@@ -446,12 +447,16 @@ impl ContactRepository {
                 active.is_online = Set(true);
                 active.last_seen = Set(Some(now));
 
-                let _ = active.update(&self.db).await;
+                active
+                    .update(&self.db)
+                    .await
+                    .map_err(|e| NeoLanError::Storage(format!("Failed to update contact: {}", e)))?;
             } else {
                 // Create new contact from peer
                 let now = chrono::Utc::now().naive_utc();
                 let new_contact = contacts::ActiveModel {
-                    peer_id: Set(Some(peer.id)),
+                    peer_id: Set(Some(peer.id.clone())), 
+                    peer_ip: Set(Some(peer.ip.clone())),
                     name: Set(peer
                         .username
                         .unwrap_or_else(|| peer.hostname.clone().unwrap_or_default())),
@@ -470,7 +475,10 @@ impl ContactRepository {
                     ..Default::default()
                 };
 
-                let _ = new_contact.insert(&self.db).await;
+                new_contact
+                    .insert(&self.db)
+                    .await
+                    .map_err(|e| NeoLanError::Storage(format!("Failed to create contact from peer: {}", e)))?;
             }
         }
 

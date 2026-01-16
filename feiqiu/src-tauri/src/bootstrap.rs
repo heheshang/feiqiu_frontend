@@ -247,9 +247,30 @@ fn bind_udp_send() -> Result<UdpTransport, Box<dyn std::error::Error + Send + Sy
 fn init_message_handler(app_state: &AppState, udp_send: UdpTransport, config: &AppConfig) {
     tracing::info!("Initializing MessageHandler...");
     let app_state_arc = Arc::new(app_state.clone());
-    let message_handler =
-        MessageHandler::new(udp_send, config.clone()).with_app_state(app_state_arc);
-    app_state.init_message_handler(message_handler);
+
+    // Get repositories from AppState
+    let peer_repo = app_state.get_peer_repo();
+    let contact_repo = app_state.get_contact_repo();
+
+    let mut handler = MessageHandler::new(udp_send, config.clone()).with_app_state(app_state_arc);
+
+    // Inject peer repository
+    if let Some(repo) = peer_repo {
+        handler = handler.with_peer_repo(Arc::new(repo));
+        tracing::info!("Peer repository injected into MessageHandler");
+    } else {
+        tracing::warn!("⚠️ Peer repository not available - peer discovery will not persist to database");
+    }
+
+    // Inject contact repository
+    if let Some(repo) = contact_repo {
+        handler = handler.with_contact_repo(Arc::new(repo));
+        tracing::info!("Contact repository injected into MessageHandler");
+    } else {
+        tracing::warn!("⚠️ Contact repository not available - contacts will not be auto-created");
+    }
+
+    app_state.init_message_handler(handler);
     tracing::info!("MessageHandler initialized");
 }
 
