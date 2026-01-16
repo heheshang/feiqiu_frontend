@@ -5,6 +5,8 @@
 // - PeerStatus: Online/Offline/Away status
 // - PeerInfo: Lightweight peer info for messages
 
+use crate::storage::peer_repo::PeerModel;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::time::SystemTime;
@@ -109,6 +111,77 @@ impl PeerNode {
         self.status = PeerStatus::Online;
         self.last_seen = SystemTime::now();
     }
+
+    /// Check if peer is online based on last_seen timestamp
+    ///
+    /// Computes online status by comparing last_seen against the timeout threshold.
+    /// Peers seen within the last 180 seconds are considered online.
+    ///
+    /// # Arguments
+    /// * `last_seen` - Last activity timestamp from database
+    ///
+    /// # Returns
+    /// * `bool` - true if peer is online (within timeout threshold)
+    pub fn is_online_from_last_seen(last_seen: NaiveDateTime) -> bool {
+        const PEER_TIMEOUT_SECONDS: i64 = 180;
+        let timeout = chrono::Duration::seconds(PEER_TIMEOUT_SECONDS);
+        let cutoff = Utc::now().naive_utc() - timeout;
+        last_seen > cutoff
+    }
+
+    /// Convert NaiveDateTime to SystemTime
+    ///
+    /// # Arguments
+    /// * `dt` - NaiveDateTime from database
+    ///
+    /// # Returns
+    /// * `SystemTime` - Converted timestamp
+    fn naive_datetime_to_system_time(dt: NaiveDateTime) -> SystemTime {
+        let utc_datetime: DateTime<Utc> = DateTime::from_naive_utc_and_offset(dt, Utc);
+        SystemTime::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_secs(
+                utc_datetime.timestamp() as u64
+            ))
+            .unwrap_or(SystemTime::now())
+    }
+}
+
+/// Convert PeerModel (database) to PeerNode (in-memory)
+///
+/// This implementation converts from the database representation to the
+/// in-memory representation, computing the peer status from the last_seen
+/// timestamp.
+impl From<&PeerModel> for PeerNode {
+    fn from(model: &PeerModel) -> Self {
+        // Compute status from last_seen timestamp
+        let status = if Self::is_online_from_last_seen(model.last_seen) {
+            PeerStatus::Online
+        } else {
+            PeerStatus::Offline
+        };
+
+        // Parse groups from JSON string if present
+        let groups: Vec<String> = model
+            .groups
+            .as_ref()
+            .and_then(|g| serde_json::from_str(g).ok())
+            .unwrap_or_default();
+
+        Self {
+            ip: model
+                .ip
+                .parse()
+                .unwrap_or_else(|_| IpAddr::from([0, 0, 0, 0])),
+            port: model.port as u16,
+            username: model.username.clone(),
+            hostname: model.hostname.clone(),
+            nickname: model.nickname.clone(),
+            avatar: model.avatar.clone(),
+            groups,
+            status,
+            last_seen: Self::naive_datetime_to_system_time(model.last_seen),
+        }
+    }
 }
 
 /// Peer status
@@ -172,7 +245,7 @@ impl PeerInfo {
         Self { ip, port, username }
     }
 
-    /// Create from PeerNode (kept for test purposes)
+    /// Create from PeerNode (used in tests)
     #[allow(dead_code)]
     pub fn from_node(node: &PeerNode) -> Self {
         Self {
@@ -181,29 +254,6 @@ impl PeerInfo {
             username: node.username.clone(),
         }
     }
-
-    /// Get socket address (kept for future use)
-    #[allow(dead_code)]
-    pub fn socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.ip, self.port)
-    }
-}
-
-/// Peer event (for state change notifications)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub enum PeerEvent {
-    /// Peer came online
-    Online(PeerInfo),
-
-    /// Peer went offline
-    Offline(IpAddr),
-
-    /// Peer status changed
-    StatusChanged(IpAddr, PeerStatus),
-
-    /// Peer information updated
-    Updated(PeerInfo),
 }
 
 #[cfg(test)]

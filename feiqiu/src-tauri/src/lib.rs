@@ -8,10 +8,10 @@ mod commands;
 mod config;
 mod error;
 mod migration;
-mod modules;
+pub mod modules;
 pub mod network;
 pub mod state;
-mod storage;
+pub mod storage;
 pub mod utils;
 
 // Re-export commonly used types

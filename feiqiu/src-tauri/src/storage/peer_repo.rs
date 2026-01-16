@@ -3,7 +3,6 @@ use crate::error::{NeoLanError, Result};
 use crate::storage::entities::peers;
 use chrono::NaiveDateTime;
 use sea_orm::*;
-use std::time::Duration;
 
 pub type PeerModel = peers::Model;
 pub type PeerActiveModel = peers::ActiveModel;
@@ -88,10 +87,9 @@ impl PeerRepository {
                 .map_err(|e| NeoLanError::Storage(format!("Failed to insert peer: {}", e)))?;
 
             // Fetch the inserted peer to get its ID
-            let inserted = self
-                .find_by_ip(&ip)
-                .await?
-                .ok_or_else(|| NeoLanError::Other("Failed to retrieve inserted peer".to_string()))?;
+            let inserted = self.find_by_ip(&ip).await?.ok_or_else(|| {
+                NeoLanError::Other("Failed to retrieve inserted peer".to_string())
+            })?;
             Ok(inserted)
         }
     }
@@ -180,9 +178,8 @@ impl PeerRepository {
 
     /// 查找在线节点（最近 60 秒内有活动）
     pub async fn find_online(&self, timeout_seconds: i64) -> Result<Vec<PeerModel>> {
-        let timeout = Duration::from_secs(timeout_seconds as u64);
         let cutoff: NaiveDateTime = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::from_std(timeout).unwrap())
+            .checked_sub_signed(chrono::Duration::seconds(timeout_seconds))
             .unwrap()
             .naive_utc();
 
@@ -197,9 +194,8 @@ impl PeerRepository {
 
     /// 查找离线节点（超过指定时间未活动）
     pub async fn find_offline(&self, timeout_seconds: i64) -> Result<Vec<PeerModel>> {
-        let timeout = Duration::from_secs(timeout_seconds as u64);
         let cutoff: NaiveDateTime = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::from_std(timeout).unwrap())
+            .checked_sub_signed(chrono::Duration::seconds(timeout_seconds))
             .unwrap()
             .naive_utc();
 
@@ -229,9 +225,8 @@ impl PeerRepository {
 
     /// 清理离线节点（删除超过指定时间未活动的节点）
     pub async fn cleanup_offline(&self, timeout_seconds: i64) -> Result<u64> {
-        let timeout = Duration::from_secs(timeout_seconds as u64);
         let cutoff: NaiveDateTime = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::from_std(timeout).unwrap())
+            .checked_sub_signed(chrono::Duration::seconds(timeout_seconds))
             .unwrap()
             .naive_utc();
 
@@ -261,15 +256,5 @@ impl PeerRepository {
             .map_err(|e| NeoLanError::Storage(format!("Failed to update last_seen: {}", e)))?;
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_peer_repo_creation() {
-        // 测试 PeerRepository 创建
-        // 注意：实际测试需要数据库连接，这里只是编译测试
-        // 集成测试将在后续阶段实现
     }
 }

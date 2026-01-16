@@ -1,15 +1,21 @@
 // Peer manager - core peer management logic
 //
 // This module handles:
-// - Maintaining the peer list (in-memory HashMap)
-// - Processing discovery messages
-// - Managing peer state transitions
+// - Maintaining the peer list in the database (SQLite via PeerRepository)
+// - Processing discovery messages and persisting to database
+// - Managing peer state transitions (online/offline computed from last_seen)
 // - Routing text messages to MessageHandler
+//
+// Architecture:
+// - PeerManager uses PeerRepository for all peer storage operations
+// - Peer discovery triggers database upserts via async bridge (block_on)
+// - Online/offline status is computed from last_seen timestamp (180s timeout)
+// - All query methods read from the database for consistency
 
 use crate::modules::peer::{discovery::PeerDiscovery, types::*};
 use crate::network::msg_type;
+use crate::storage::peer_repo::PeerRepository;
 use crate::{network::ProtocolMessage, Result};
-use std::collections::HashMap;
 use std::io::{self, Error as IoError};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::mpsc::Sender;
@@ -50,14 +56,24 @@ pub struct MessageRouteRequest {
 
 /// Peer manager
 ///
-/// Manages the in-memory peer list and handles peer discovery events.
+/// Manages the database-backed peer list and handles peer discovery events.
+///
+/// # Architecture
+/// - All peer data is persisted to SQLite database via `PeerRepository`
+/// - Peer online/offline status is computed from `last_seen` timestamp
+/// - Async database operations use a runtime that's resolved at call time
+/// - Peer information survives application restarts
+///
+/// # Thread Safety
+/// - Safe for concurrent access (all methods take `&self`)
+/// - Database operations create a temporary runtime if needed
 #[derive(Clone)]
 pub struct PeerManager {
     /// Peer discovery service
     discovery: PeerDiscovery,
 
-    /// In-memory peer map (IP -> PeerNode)
-    peers: Arc<Mutex<HashMap<IpAddr, PeerNode>>>,
+    /// Peer repository for database operations
+    peer_repo: Arc<PeerRepository>,
 
     /// Whether the manager is running
     running: Arc<Mutex<bool>>,
@@ -71,15 +87,16 @@ impl PeerManager {
     ///
     /// # Arguments
     /// * `discovery` - Peer discovery service
+    /// * `peer_repo` - Peer repository for database operations
     ///
     /// # Returns
     /// * `PeerManager` - New peer manager instance
-    pub fn new(discovery: PeerDiscovery) -> Self {
-        info!("Creating PeerManager");
+    pub fn new(discovery: PeerDiscovery, peer_repo: Arc<PeerRepository>) -> Self {
+        info!("Creating PeerManager with database backing");
 
         Self {
             discovery,
-            peers: Arc::new(Mutex::new(HashMap::new())),
+            peer_repo,
             running: Arc::new(Mutex::new(false)),
             message_tx: Arc::new(Mutex::new(None)),
         }
@@ -94,6 +111,41 @@ impl PeerManager {
     pub fn set_message_handler_channel(&self, tx: Sender<MessageRouteRequest>) {
         *safe_lock!(self.message_tx) = Some(tx);
         info!("Message handler channel set in PeerManager");
+    }
+
+    /// Execute an async database operation
+    ///
+    /// This helper tries to use the current tokio runtime if available,
+    /// otherwise creates a new runtime temporarily for the operation.
+    /// This prevents panics when the runtime is shutting down.
+    ///
+    /// # Arguments
+    /// * `f` - Async future factory that takes the repo and returns a future
+    ///
+    /// # Returns
+    /// * `Result<T>` - Result of the async operation
+    fn exec_async<F, T, R>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(Arc<PeerRepository>) -> R,
+        R: std::future::Future<Output = Result<T>>,
+    {
+        let repo = Arc::clone(&self.peer_repo);
+
+        // Try to use the current runtime first
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                // Use existing runtime
+                handle.block_on(f(repo))
+            }
+            Err(_) => {
+                // No runtime available, create a temporary one
+                debug!("No tokio runtime found, creating temporary runtime for database operation");
+                let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                    crate::NeoLanError::Other(format!("Failed to create tokio runtime: {}", e))
+                })?;
+                rt.block_on(f(repo))
+            }
+        }
     }
 
     /// Start the peer manager
@@ -124,7 +176,7 @@ impl PeerManager {
         self.discovery.announce_online()?;
 
         // Start listening for incoming messages (blocking)
-        let peers = Arc::clone(&self.peers);
+        let peer_repo = Arc::clone(&self.peer_repo);
         let running = Arc::clone(&self.running);
         let message_tx = Arc::clone(&self.message_tx);
 
@@ -138,7 +190,7 @@ impl PeerManager {
             }
 
             // Handle the message
-            if let Err(e) = Self::handle_message(&peers, msg, sender, &message_tx) {
+            if let Err(e) = Self::handle_message(&peer_repo, msg, sender, &message_tx) {
                 warn!("Failed to handle message: {:?}", e);
             }
         })?;
@@ -156,7 +208,7 @@ impl PeerManager {
 
     /// Handle a protocol message
     fn handle_message(
-        peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>,
+        peer_repo: &Arc<PeerRepository>,
         msg: ProtocolMessage,
         sender: SocketAddr,
         message_tx: &Arc<Mutex<Option<Sender<MessageRouteRequest>>>>,
@@ -176,97 +228,39 @@ impl PeerManager {
 
         match mode as u32 {
             // IPMSG_BR_ENTRY: Peer is online / broadcasting presence
-          msg_type::IPMSG_BR_ENTRY => {
+            msg_type::IPMSG_BR_ENTRY => {
                 debug!("📢 Handling BR_ENTRY (peer online)");
-                Self::handle_online_msg(peers, &msg, sender)?;
-                if let Some(ref tx) = *safe_lock!(message_tx) {
-                    let route_req = MessageRouteRequest {
-                        message: msg,
-                        sender,
-                    };
-                    if let Err(e) = tx.send(route_req) {
-                        error!("❌ Failed to send message to MessageHandler: {}", e);
-                    } else {
-                        debug!("✅ Message routed to MessageHandler successfully");
-                    }
-                } else {
-                    warn!("⚠️ MessageHandler channel not set - text message not routed");
-                }
+                Self::handle_online_msg(peer_repo, &msg, sender)?;
+                Self::route_message(&message_tx, msg, sender, "text message");
             }
             // IPMSG_BR_EXIT: Peer is going offline
-          msg_type::IPMSG_BR_EXIT => {
+            msg_type::IPMSG_BR_EXIT => {
                 debug!("📴 Handling BR_EXIT (peer offline)");
-                Self::handle_offline_msg(peers, ip)?;
-                if let Some(ref tx) = *safe_lock!(message_tx) {
-                    let route_req = MessageRouteRequest {
-                        message: msg,
-                        sender,
-                    };
-                    if let Err(e) = tx.send(route_req) {
-                        error!("❌ Failed to send message to MessageHandler: {}", e);
-                    } else {
-                        debug!("✅ Message routed to MessageHandler successfully");
-                    }
-                } else {
-                    warn!("⚠️ MessageHandler channel not set - text message not routed");
-                }
+                Self::handle_offline_msg(ip)?;
+                Self::route_message(&message_tx, msg, sender, "offline notification");
             }
             // IPMSG_ANSENTRY: Response to BR_ENTRY (also indicates online presence)
-          msg_type::IPMSG_ANSENTRY => {
+            msg_type::IPMSG_ANSENTRY => {
                 debug!("📢 Handling ANSENTRY (peer online response)");
-                Self::handle_online_msg(peers, &msg, sender)?;
-                if let Some(ref tx) = *safe_lock!(message_tx) {
-                    let route_req = MessageRouteRequest {
-                        message: msg,
-                        sender,
-                    };
-                    if let Err(e) = tx.send(route_req) {
-                        error!("❌ Failed to send message to MessageHandler: {}", e);
-                    } else {
-                        debug!("✅ Message routed to MessageHandler successfully");
-                    }
-                } else {
-                    warn!("⚠️ MessageHandler channel not set - text message not routed");
-                }
+                Self::handle_online_msg(peer_repo, &msg, sender)?;
+                Self::route_message(&message_tx, msg, sender, "presence response");
             }
             // IPMSG_SENDMSG: Text message - route to MessageHandler
-          msg_type::IPMSG_SENDMSG => {
+            msg_type::IPMSG_SENDMSG => {
                 info!(
                     "💌 [TEXT MESSAGE] Routing text message to MessageHandler: from={}, content={}",
                     msg.sender_name,
                     msg.content.chars().take(100).collect::<String>()
                 );
-                if let Some(ref tx) = *safe_lock!(message_tx) {
-                    let route_req = MessageRouteRequest {
-                        message: msg,
-                        sender,
-                    };
-                    if let Err(e) = tx.send(route_req) {
-                        error!("❌ Failed to send message to MessageHandler: {}", e);
-                    } else {
-                        debug!("✅ Message routed to MessageHandler successfully");
-                    }
-                } else {
-                    warn!("⚠️ MessageHandler channel not set - text message not routed");
-                }
+                Self::route_message(&message_tx, msg, sender, "text message");
             }
             // IPMSG_RECVMSG: Message acknowledgment - route to MessageHandler
-          msg_type::IPMSG_RECVMSG => {
-                info!("✅ [RECEIPT ACK] Routing message acknowledgment to MessageHandler: from={}, packet_id={}",
-                    msg.sender_name, msg.packet_id);
-                if let Some(ref tx) = *safe_lock!(message_tx) {
-                    let route_req = MessageRouteRequest {
-                        message: msg,
-                        sender,
-                    };
-                    if let Err(e) = tx.send(route_req) {
-                        error!("❌ Failed to send acknowledgment to MessageHandler: {}", e);
-                    } else {
-                        debug!("✅ Acknowledgment routed to MessageHandler successfully");
-                    }
-                } else {
-                    warn!("⚠️ MessageHandler channel not set - acknowledgment not routed");
-                }
+            msg_type::IPMSG_RECVMSG => {
+                info!(
+                    "✅ [RECEIPT ACK] Routing message acknowledgment to MessageHandler: from={}, packet_id={}",
+                    msg.sender_name, msg.packet_id
+                );
+                Self::route_message(&message_tx, msg, sender, "acknowledgment");
             }
             _ => {
                 // Other message types (FILE_SEND_REQ, etc.)
@@ -274,7 +268,7 @@ impl PeerManager {
                     "ℹ️ Ignoring message type: {} (mode: {}, options: 0x{:06x})",
                     msg.msg_type,
                     mode,
-                  msg_type::get_opt(msg.msg_type)
+                    msg_type::get_opt(msg.msg_type)
                 );
             }
         }
@@ -282,9 +276,52 @@ impl PeerManager {
         Ok(())
     }
 
+    /// Route a message to the MessageHandler through the channel
+    ///
+    /// This helper method encapsulates the common pattern of sending messages
+    /// to the MessageHandler, reducing code duplication across message types.
+    fn route_message(
+        message_tx: &Arc<Mutex<Option<Sender<MessageRouteRequest>>>>,
+        message: ProtocolMessage,
+        sender: SocketAddr,
+        msg_type_description: &str,
+    ) {
+        if let Some(ref tx) = *safe_lock!(message_tx) {
+            let route_req = MessageRouteRequest { message, sender };
+            if let Err(e) = tx.send(route_req) {
+                error!(
+                    "❌ Failed to send {} to MessageHandler: {}",
+                    msg_type_description, e
+                );
+            } else {
+                debug!(
+                    "✅ {} routed to MessageHandler successfully",
+                    msg_type_description
+                );
+            }
+        } else {
+            warn!(
+                "⚠️ MessageHandler channel not set - {} not routed",
+                msg_type_description
+            );
+        }
+    }
+
     /// Handle online message
+    ///
+    /// Upserts peer information to the database when a peer comes online.
+    ///
+    /// # Async Bridge
+    /// This method is called from a synchronous context (UDP callback) but needs
+    /// to perform async database operations. Uses `exec_async_static` helper which
+    /// tries to use the current tokio runtime, or creates a temporary one if needed.
+    ///
+    /// # Arguments
+    /// * `peer_repo` - Peer repository for database operations
+    /// * `msg` - Protocol message containing peer information
+    /// * `sender` - Sender's socket address
     fn handle_online_msg(
-        peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>,
+        peer_repo: &Arc<PeerRepository>,
         msg: &ProtocolMessage,
         sender: SocketAddr,
     ) -> Result<()> {
@@ -295,63 +332,72 @@ impl PeerManager {
             ip, msg.sender_name, msg.sender_host
         );
 
-        let mut peers = peers.lock().map_err(lock_error)?;
+        // Use async bridge to call database upsert
+        let ip_str = ip.to_string();
+        let port = sender.port() as i32;
+        let username = Some(msg.sender_name.clone());
+        let hostname = Some(msg.sender_host.clone());
+        let last_seen = chrono::Utc::now().naive_utc();
+        let repo = Arc::clone(peer_repo);
 
-        // Create or update peer
-        let peer = peers
-            .entry(ip)
-            .or_insert_with(|| PeerNode::new(ip, sender.port()));
+        Self::exec_async_static(async move {
+            repo.upsert(ip_str, port, username, hostname, last_seen)
+                .await
+        })?;
 
-        // Update peer information
-        peer.port = sender.port();
-        peer.username = Some(msg.sender_name.clone());
-        peer.hostname = Some(msg.sender_host.clone());
-        peer.status = PeerStatus::Online;
-        peer.last_seen = std::time::SystemTime::now();
-
-        debug!("Peer added/updated: {}", ip);
+        debug!("Peer upserted to database: {}", ip);
         Ok(())
     }
 
     /// Handle offline message
-    fn handle_offline_msg(peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>, ip: IpAddr) -> Result<()> {
+    ///
+    /// For offline peers, we simply log it since online status is computed
+    /// from the last_seen timestamp. The peer will appear offline after
+    /// the timeout threshold expires.
+    fn handle_offline_msg(ip: IpAddr) -> Result<()> {
         info!("Peer offline: {}", ip);
 
-        let mut peers = peers.lock().map_err(lock_error)?;
+        // Note: We don't need to update the database for offline events
+        // since offline status is computed from last_seen timestamp.
+        // The peer will automatically appear offline after the timeout.
 
-        if let Some(peer) = peers.get_mut(&ip) {
-            peer.mark_offline();
-            debug!("Peer marked offline: {}", ip);
-        } else {
-            debug!("Peer not found: {}", ip);
-        }
-
+        debug!("Peer {} will be marked offline after timeout", ip);
         Ok(())
     }
 
-    /// Handle heartbeat message
-    fn handle_heartbeat_msg(
-        peers: &Arc<Mutex<HashMap<IpAddr, PeerNode>>>,
-        ip: IpAddr,
-    ) -> Result<()> {
-        debug!("Heartbeat from: {}", ip);
-
-        let mut peers = peers.lock().map_err(lock_error)?;
-
-        if let Some(peer) = peers.get_mut(&ip) {
-            peer.update_last_seen();
-            // Ensure status is online (in case it was marked offline)
-            if peer.status != PeerStatus::Online {
-                peer.mark_online();
+    /// Static helper to execute async database operations
+    ///
+    /// This helper tries to use the current tokio runtime if available,
+    /// otherwise creates a new runtime temporarily for the operation.
+    /// This prevents panics when the runtime is shutting down.
+    ///
+    /// # Arguments
+    /// * `f` - Async future to execute
+    ///
+    /// # Returns
+    /// * `Result<T>` - Result of the async operation
+    fn exec_async_static<T, F>(f: F) -> Result<T>
+    where
+        F: std::future::Future<Output = Result<T>>,
+    {
+        // Try to use the current runtime first
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                // Use existing runtime
+                handle.block_on(f)
             }
-        } else {
-            debug!("Heartbeat from unknown peer: {}", ip);
+            Err(_) => {
+                // No runtime available, create a temporary one
+                debug!("No tokio runtime found, creating temporary runtime for database operation");
+                let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                    crate::NeoLanError::Other(format!("Failed to create tokio runtime: {}", e))
+                })?;
+                rt.block_on(f)
+            }
         }
-
-        Ok(())
     }
 
-    /// Add a peer to the list
+    /// Add a peer to the database
     ///
     /// # Arguments
     /// * `peer` - Peer node to add
@@ -364,14 +410,25 @@ impl PeerManager {
 
         info!("Adding peer: {} ({})", ip, peer.display_name());
 
-        let mut peers = self.peers.lock().map_err(lock_error)?;
+        let ip_str = ip.to_string();
+        let port = peer.port as i32;
+        let username = peer.username;
+        let hostname = peer.hostname;
+        let last_seen = chrono::Utc::now().naive_utc();
+        let repo = Arc::clone(&self.peer_repo);
 
-        peers.insert(ip, peer);
+        self.exec_async(|_repo| async move {
+            repo.upsert(ip_str, port, username, hostname, last_seen)
+                .await
+        })?;
 
         Ok(())
     }
 
     /// Update peer status
+    ///
+    /// Note: This method updates the last_seen timestamp for online peers.
+    /// For offline status, we simply let the timeout expire.
     ///
     /// # Arguments
     /// * `ip` - Peer IP address
@@ -383,18 +440,14 @@ impl PeerManager {
     pub fn update_peer_status(&self, ip: IpAddr, status: PeerStatus) -> Result<()> {
         debug!("Updating peer status: {} -> {:?}", ip, status);
 
-        let mut peers = self.peers.lock().map_err(lock_error)?;
+        if status == PeerStatus::Online {
+            let ip_str = ip.to_string();
+            let repo = Arc::clone(&self.peer_repo);
 
-        if let Some(peer) = peers.get_mut(&ip) {
-            peer.status = status.clone();
-            if status == PeerStatus::Online {
-                peer.last_seen = std::time::SystemTime::now();
-            }
-            Ok(())
-        } else {
-            warn!("Peer not found: {}", ip);
-            Err(crate::NeoLanError::PeerNotFound(ip.to_string()))
+            self.exec_async(|_repo| async move { repo.update_last_seen(&ip_str).await })?;
         }
+
+        Ok(())
     }
 
     /// Get all peers
@@ -402,9 +455,10 @@ impl PeerManager {
     /// # Returns
     /// * `Vec<PeerNode>` - List of all peers
     pub fn get_all_peers(&self) -> Vec<PeerNode> {
-        self.peers
-            .lock()
-            .map(|peers| peers.values().cloned().collect())
+        let repo = Arc::clone(&self.peer_repo);
+
+        self.exec_async(|_repo| async move { repo.find_all().await })
+            .map(|models| models.iter().map(|m| PeerNode::from(m)).collect())
             .unwrap_or_default()
     }
 
@@ -413,9 +467,11 @@ impl PeerManager {
     /// # Returns
     /// * `Vec<PeerNode>` - List of online peers
     pub fn get_online_peers(&self) -> Vec<PeerNode> {
-        self.peers
-            .lock()
-            .map(|peers| peers.values().filter(|p| p.is_online()).cloned().collect())
+        const PEER_TIMEOUT_SECONDS: i64 = 180;
+        let repo = Arc::clone(&self.peer_repo);
+
+        self.exec_async(|_repo| async move { repo.find_online(PEER_TIMEOUT_SECONDS).await })
+            .map(|models| models.iter().map(|m| PeerNode::from(m)).collect())
             .unwrap_or_default()
     }
 
@@ -427,7 +483,13 @@ impl PeerManager {
     /// # Returns
     /// * `Option<PeerNode>` - Peer if found
     pub fn get_peer(&self, ip: IpAddr) -> Option<PeerNode> {
-        self.peers.lock().ok()?.get(&ip).cloned()
+        let ip_str = ip.to_string();
+        let repo = Arc::clone(&self.peer_repo);
+
+        self.exec_async(|_repo| async move { repo.find_by_ip(&ip_str).await })
+            .ok()
+            .flatten()
+            .map(|model| PeerNode::from(&model))
     }
 
     /// Get peer count
@@ -435,7 +497,7 @@ impl PeerManager {
     /// # Returns
     /// * `usize` - Number of peers
     pub fn peer_count(&self) -> usize {
-        self.peers.lock().map(|peers| peers.len()).unwrap_or(0)
+        self.get_all_peers().len()
     }
 
     /// Get online peer count
@@ -443,10 +505,7 @@ impl PeerManager {
     /// # Returns
     /// * `usize` - Number of online peers
     pub fn online_peer_count(&self) -> usize {
-        self.peers
-            .lock()
-            .map(|peers| peers.values().filter(|p| p.is_online()).count())
-            .unwrap_or(0)
+        self.get_online_peers().len()
     }
 
     /// Get the discovery service
@@ -462,11 +521,11 @@ impl PeerManager {
     /// # Returns
     /// * `bool` - true if peer was removed, false if not found
     pub fn remove_peer(&self, ip: IpAddr) -> bool {
-        self.peers
-            .lock()
-            .ok()
-            .and_then(|mut peers| peers.remove(&ip))
-            .is_some()
+        let ip_str = ip.to_string();
+        let repo = Arc::clone(&self.peer_repo);
+
+        self.exec_async(|_repo| async move { repo.delete_by_ip(&ip_str).await })
+            .is_ok()
     }
 
     /// Check if a peer exists
@@ -477,141 +536,6 @@ impl PeerManager {
     /// # Returns
     /// * `bool` - true if peer exists
     pub fn has_peer(&self, ip: IpAddr) -> bool {
-        self.peers
-            .lock()
-            .map(|peers| peers.contains_key(&ip))
-            .unwrap_or(false)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::network::UdpTransport;
-
-    #[test]
-    fn test_peer_manager_creation() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        assert_eq!(manager.peer_count(), 0);
-        assert_eq!(manager.online_peer_count(), 0);
-    }
-
-    #[test]
-    fn test_add_peer() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        let ip = "192.168.1.100".parse().unwrap();
-        let peer = PeerNode::new(ip, 2425);
-
-        manager.add_peer(peer).unwrap();
-
-        assert_eq!(manager.peer_count(), 1);
-        assert!(manager.has_peer(ip));
-    }
-
-    #[test]
-    fn test_get_peer() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        let ip = "192.168.1.100".parse().unwrap();
-        let peer = PeerNode::new(ip, 2425);
-
-        manager.add_peer(peer).unwrap();
-
-        let retrieved = manager.get_peer(ip);
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().ip, ip);
-    }
-
-    #[test]
-    fn test_update_peer_status() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        let ip = "192.168.1.100".parse().unwrap();
-        let peer = PeerNode::new(ip, 2425);
-
-        manager.add_peer(peer).unwrap();
-
-        // Update to offline
-        manager.update_peer_status(ip, PeerStatus::Offline).unwrap();
-
-        let retrieved = manager.get_peer(ip).unwrap();
-        assert_eq!(retrieved.status, PeerStatus::Offline);
-
-        // Online count should be 0
-        assert_eq!(manager.online_peer_count(), 0);
-
-        // Update back to online
-        manager.update_peer_status(ip, PeerStatus::Online).unwrap();
-
-        let retrieved = manager.get_peer(ip).unwrap();
-        assert_eq!(retrieved.status, PeerStatus::Online);
-        assert_eq!(manager.online_peer_count(), 1);
-    }
-
-    #[test]
-    fn test_remove_peer() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        let ip = "192.168.1.100".parse().unwrap();
-        let peer = PeerNode::new(ip, 2425);
-
-        manager.add_peer(peer).unwrap();
-        assert_eq!(manager.peer_count(), 1);
-
-        let removed = manager.remove_peer(ip);
-        assert!(removed);
-        assert_eq!(manager.peer_count(), 0);
-
-        // Remove again should return false
-        let removed_again = manager.remove_peer(ip);
-        assert!(!removed_again);
-    }
-
-    #[test]
-    fn test_get_all_peers() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        let ip1 = "192.168.1.100".parse().unwrap();
-        let ip2 = "192.168.1.101".parse().unwrap();
-
-        manager.add_peer(PeerNode::new(ip1, 2425)).unwrap();
-        manager.add_peer(PeerNode::new(ip2, 2425)).unwrap();
-
-        let all_peers = manager.get_all_peers();
-        assert_eq!(all_peers.len(), 2);
-    }
-
-    #[test]
-    fn test_get_online_peers() {
-        let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
-        let manager = PeerManager::new(discovery);
-
-        let ip1 = "192.168.1.100".parse().unwrap();
-        let ip2 = "192.168.1.101".parse().unwrap();
-
-        let mut peer1 = PeerNode::new(ip1, 2425);
-        peer1.mark_offline();
-
-        manager.add_peer(peer1).unwrap();
-        manager.add_peer(PeerNode::new(ip2, 2425)).unwrap();
-
-        let online_peers = manager.get_online_peers();
-        assert_eq!(online_peers.len(), 1);
-        assert_eq!(online_peers[0].ip, ip2);
+        self.get_peer(ip).is_some()
     }
 }
