@@ -304,11 +304,16 @@ fn init_peer_manager(
     message_route_tx: mpsc::Sender<MessageRouteRequest>,
 ) {
     tracing::info!("Initializing PeerManager...");
-    let discovery = PeerDiscovery::with_defaults(udp_recv);
+
+    // Get config to access user_id
+    let config = app_state.get_config();
+
+    let discovery = PeerDiscovery::with_defaults(udp_recv, config.user_id.clone());
     tracing::info!(
-        "PeerDiscovery created: {}@{}",
+        "PeerDiscovery created: {}@{} (user_id: {})",
         discovery.username(),
-        discovery.hostname()
+        discovery.hostname(),
+        discovery.user_id()
     );
 
     // Get peer repository from app state

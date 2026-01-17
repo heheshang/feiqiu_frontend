@@ -9,6 +9,7 @@ use chrono::{Duration, Utc};
 fn test_peer_node_from_model() {
     let model = feiqiu::storage::entities::peers::Model {
         id: 1,
+        user_id: Some("T0170001".to_string()),
         ip: "192.168.1.100".to_string(),
         port: 2425,
         username: Some("Alice".to_string()),

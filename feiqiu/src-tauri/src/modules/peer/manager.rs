@@ -341,8 +341,15 @@ impl PeerManager {
         let repo = Arc::clone(peer_repo);
 
         Self::exec_async_static(async move {
-            repo.upsert(ip_str, port, username, hostname, last_seen)
-                .await
+            repo.upsert(
+                ip_str,
+                port,
+                Some(msg.user_id.clone()),
+                username,
+                hostname,
+                last_seen,
+            )
+            .await
         })?;
 
         debug!("Peer upserted to database: {}", ip);
@@ -418,7 +425,7 @@ impl PeerManager {
         let repo = Arc::clone(&self.peer_repo);
 
         self.exec_async(|_repo| async move {
-            repo.upsert(ip_str, port, username, hostname, last_seen)
+            repo.upsert(ip_str, port, peer.user_id, username, hostname, last_seen)
                 .await
         })?;
 

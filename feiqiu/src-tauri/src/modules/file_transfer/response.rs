@@ -157,6 +157,7 @@ impl FileTransferResponse {
         let proto_msg = ProtocolMessage {
             version: PROTOCOL_VERSION as u8,
             packet_id,
+            user_id: String::new(),
             sender_name: self.username.clone(),
             sender_host: self.hostname.clone(),
             msg_type: msg_type::IPMSG_RELEASEFILES,
@@ -265,6 +266,7 @@ mod tests {
         let proto_msg = ProtocolMessage {
             version: 1,
             packet_id: 1,
+            user_id: "T0170006".to_string(),
             sender_name: "Alice".to_string(),
             sender_host: "alice-pc".to_string(),
             msg_type: msg_type::IPMSG_GETFILEDATA,

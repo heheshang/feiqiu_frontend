@@ -48,6 +48,7 @@ impl MockPeerRepository {
             // Insert new
             feiqiu::storage::peer_repo::PeerModel {
                 id: peers.len() as i32 + 1,
+                user_id: Some(format!("T{:07}", peers.len() + 1)),
                 ip: ip.clone(),
                 port,
                 username,

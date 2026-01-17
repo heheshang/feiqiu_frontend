@@ -6,8 +6,9 @@ pub mod udp;
 
 // Re-export commonly used types
 pub use protocol::{
-    get_message_type_name, msg_type, parse_message, serialize_message, FileSendRequest,
-    FileSendResponse, ProtocolMessage, PROTOCOL_VERSION,
+    get_local_mac_address, get_message_type_name, msg_type, parse_message, serialize_message,
+    serialize_message_for_feiq, FileSendRequest, FileSendResponse, ProtocolMessage,
+    PROTOCOL_VERSION,
 };
 
 pub use udp::{UdpTransport, DEFAULT_UDP_PORT};

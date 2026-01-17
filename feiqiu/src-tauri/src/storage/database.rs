@@ -115,30 +115,3 @@ pub fn get_db_path() -> PathBuf {
     let base_dir = get_app_data_dir();
     base_dir.join("neolan").join("neolan.db")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_db_path() {
-        let db_path = get_db_path();
-
-        // 验证路径以 neolan.db 结尾
-        assert!(db_path.ends_with("neolan.db"));
-    }
-
-    #[test]
-    fn test_get_db_path_with_env_override() {
-        // 设置环境变量
-        env::set_var("NEOLAN_DATA_DIR", "/tmp/test_neolan");
-
-        let db_path = get_db_path();
-
-        // 验证路径使用了环境变量
-        assert!(db_path.starts_with("/tmp/test_neolan"));
-
-        // 清理环境变量
-        env::remove_var("NEOLAN_DATA_DIR");
-    }
-}

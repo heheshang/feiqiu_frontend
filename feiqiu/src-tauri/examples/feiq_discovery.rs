@@ -63,6 +63,7 @@ fn create_ipmsg_message(
     let msg = ProtocolMessage {
         version: protocol::PROTOCOL_VERSION,
         packet_id,
+        user_id: format!("T{:07}", packet_id),
         sender_name: sender_name.to_string(),
         sender_host: sender_host.to_string(),
         msg_type: command,

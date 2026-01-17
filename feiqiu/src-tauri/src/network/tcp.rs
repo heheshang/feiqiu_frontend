@@ -37,8 +37,8 @@ impl TcpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::tcp::TcpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::tcp::TcpTransport;
+    /// # use feiqiu::NeoLanError;
     /// let (listener, port) = TcpTransport::bind_available()?;
     /// println!("Bound to port {}", port);
     /// # Ok::<(), NeoLanError>(())
@@ -75,8 +75,8 @@ impl TcpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::tcp::TcpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::tcp::TcpTransport;
+    /// # use feiqiu::NeoLanError;
     /// # use std::net::SocketAddr;
     /// let addr = "192.168.1.100:8001".parse::<SocketAddr>().unwrap();
     /// let stream = TcpTransport::connect(addr)?;
@@ -507,10 +507,16 @@ mod tests {
 
     #[test]
     fn test_set_timeouts() {
-        let stream = TcpStream::connect("127.0.0.1:80").unwrap(); // May fail, but that's ok for this test
+        // Try to connect to a port that's likely not listening
+        // This may fail with connection refused, which is expected
+        let result = TcpStream::connect("127.0.0.1:80");
 
-        // Test setting timeouts (may fail if not connected, but that's expected)
-        let _ = TcpTransport::set_read_timeout(&stream, 30);
-        let _ = TcpTransport::set_write_timeout(&stream, 30);
+        // If connection succeeds, test setting timeouts
+        if let Ok(stream) = result {
+            // Test setting timeouts
+            let _ = TcpTransport::set_read_timeout(&stream, 30);
+            let _ = TcpTransport::set_write_timeout(&stream, 30);
+        }
+        // If connection fails, that's also fine for this test
     }
 }

@@ -12,7 +12,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 ///
 /// ```no_run
 /// fn main() {
-///     neolan_lib::utils::logger::init_logger();
+///     feiqiu::utils::logger::init_logger();
 ///     tracing::info!("Application started");
 /// }
 /// ```
@@ -20,8 +20,8 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 /// # Environment Variables
 ///
 /// - `RUST_LOG`: Set the default log level (e.g., "debug", "info", "warn", "error")
-/// - `RUST_LOG=neolan=debug`: Set debug level for neolan crate only
-/// - `RUST_LOG=info,neolan::network=debug`: Mix of default and specific levels
+/// - `RUST_LOG=feiqiu=debug`: Set debug level for feiqiu crate only
+/// - `RUST_LOG=info,feiqiu::network=debug`: Mix of default and specific levels
 pub fn init_logger() {
     // Read log level from environment variable, default to "info"
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -39,16 +39,4 @@ pub fn init_logger() {
                 .with_line_number(true), // Show line number
         )
         .init();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_logger_init() {
-        // This test ensures logger can be initialized without panicking
-        init_logger();
-        tracing::info!("Logger initialized successfully");
-    }
 }

@@ -23,6 +23,9 @@ pub struct PeerNode {
     /// UDP port
     pub port: u16,
 
+    /// User unique ID (user_id) - used for unique identification in LAN
+    pub user_id: Option<String>,
+
     /// Username (display name)
     pub username: Option<String>,
 
@@ -51,6 +54,7 @@ impl PeerNode {
         Self {
             ip,
             port,
+            user_id: None,
             username: None,
             hostname: None,
             nickname: None,
@@ -65,12 +69,14 @@ impl PeerNode {
     pub fn with_details(
         ip: IpAddr,
         port: u16,
+        user_id: Option<String>,
         username: Option<String>,
         hostname: Option<String>,
     ) -> Self {
         Self {
             ip,
             port,
+            user_id,
             username,
             hostname,
             nickname: None,
@@ -173,6 +179,7 @@ impl From<&PeerModel> for PeerNode {
                 .parse()
                 .unwrap_or_else(|_| IpAddr::from([0, 0, 0, 0])),
             port: model.port as u16,
+            user_id: model.user_id.clone(),
             username: model.username.clone(),
             hostname: model.hostname.clone(),
             nickname: model.nickname.clone(),
@@ -278,11 +285,13 @@ mod tests {
         let node = PeerNode::with_details(
             ip,
             2425,
+            Some("T0170006".to_string()),
             Some("Alice".to_string()),
             Some("alice-pc".to_string()),
         );
 
         assert_eq!(node.ip, ip);
+        assert_eq!(node.user_id, Some("T0170006".to_string()));
         assert_eq!(node.username, Some("Alice".to_string()));
         assert_eq!(node.hostname, Some("alice-pc".to_string()));
     }
@@ -339,6 +348,7 @@ mod tests {
         let node = PeerNode::with_details(
             ip,
             2425,
+            Some("T0170006".to_string()),
             Some("Alice".to_string()),
             Some("alice-pc".to_string()),
         );

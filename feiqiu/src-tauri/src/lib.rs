@@ -4,8 +4,8 @@
 
 // Module declarations
 mod bootstrap;
-mod commands;
-mod config;
+pub mod commands;
+pub mod config;
 mod error;
 mod migration;
 pub mod modules;

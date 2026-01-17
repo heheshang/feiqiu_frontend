@@ -5,6 +5,7 @@
 // - Listening for peer announcements
 // - Processing incoming discovery messages
 
+use crate::network::protocol::{get_local_mac_address, serialize_message_for_feiq};
 use crate::network::{msg_type, serialize_message, ProtocolMessage, UdpTransport};
 use crate::Result;
 use std::net::SocketAddr;
@@ -22,6 +23,9 @@ pub struct PeerDiscovery {
     /// UDP transport for sending/receiving
     udp: Arc<UdpTransport>,
 
+    /// Local user_id (user unique identifier)
+    user_id: String,
+
     /// Local username (sent in announcements)
     username: String,
 
@@ -37,16 +41,18 @@ impl PeerDiscovery {
     ///
     /// # Arguments
     /// * `udp` - UDP transport instance
+    /// * `user_id` - Local user unique identifier
     /// * `username` - Local username (displayed to other peers)
     /// * `hostname` - Local hostname
     ///
     /// # Returns
     /// * `PeerDiscovery` - New discovery service instance
-    pub fn new(udp: UdpTransport, username: String, hostname: String) -> Self {
+    pub fn new(udp: UdpTransport, user_id: String, username: String, hostname: String) -> Self {
         tracing::info!("Creating PeerDiscovery: {}@{}", username, hostname);
 
         Self {
             udp: Arc::new(udp),
+            user_id,
             username,
             hostname,
             packet_id: Arc::new(AtomicU64::new(1)),
@@ -57,14 +63,15 @@ impl PeerDiscovery {
     ///
     /// # Arguments
     /// * `udp` - UDP transport instance
+    /// * `user_id` - User unique identifier (will be generated if not provided)
     ///
     /// # Returns
     /// * `PeerDiscovery` - New discovery service instance with system identity
-    pub fn with_defaults(udp: UdpTransport) -> Self {
+    pub fn with_defaults(udp: UdpTransport, user_id: String) -> Self {
         let username = whoami::username();
         let hostname = whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string());
 
-        Self::new(udp, username, hostname)
+        Self::new(udp, user_id, username, hostname)
     }
 
     /// Announce online status to LAN
@@ -76,7 +83,7 @@ impl PeerDiscovery {
     /// * `Ok(())` - Announcement sent successfully (or gracefully skipped on macOS)
     /// * `Err(NeoLanError)` - Send failed
     pub fn announce_online(&self) -> Result<()> {
-        tracing::info!("Announcing online status to LAN");
+        tracing::info!("Announcing online status to LAN (FeiQ compatible)");
 
         // Enable broadcast if not already enabled
         if let Err(e) = self.udp.set_broadcast_enabled(true) {
@@ -84,38 +91,40 @@ impl PeerDiscovery {
             // On macOS, this can fail due to interface issues - continue anyway
         }
 
+        // Get MAC address for FeiQ format
+        let mac_address =
+            crate::network::get_local_mac_address().unwrap_or_else(|_| "000000000000".to_string());
+
         // Create BR_ENTRY message (broadcast online)
         let msg = ProtocolMessage {
             version: 1,
             packet_id: self.next_packet_id(),
+            user_id: self.user_id.clone(),
             sender_name: self.username.clone(),
             sender_host: self.hostname.clone(),
-            msg_type: msg_type::IPMSG_BR_ENTRY,
-            content: String::new(),
+            msg_type: msg_type::IPMSG_BR_ENTRY | msg_type::IPMSG_UTF8OPT,
+            content: self.username.clone(), // FeiQ puts username in content for BR_ENTRY
         };
 
-        // Serialize and send
-        let bytes = serialize_message(&msg)?;
+        // Try FeiQ format first, fall back to standard format
+        let feiq_bytes =
+            crate::network::serialize_message_for_feiq(&msg, &mac_address, self.udp.port())?;
 
-        // Try to broadcast, but handle macOS broadcast issues gracefully
-        match self.udp.broadcast(&bytes) {
+        match self.udp.broadcast(&feiq_bytes) {
             Ok(()) => {
                 tracing::debug!(
-                    "Online announcement sent: {}@{}",
+                    "FeiQ online announcement sent: {}@{}",
                     self.username,
                     self.hostname
                 );
             }
             Err(e) => {
-                // On macOS, broadcast can fail with EADDRNOTAVAIL (error 49) due to
-                // virtual interfaces (VPN, Docker, etc.). We continue anyway since:
-                // 1. We can still receive peer announcements
-                // 2. Other peers will discover us when they broadcast
-                tracing::warn!(
-                    "Failed to send broadcast announcement (this is normal on macOS with VPNs/Docker): {:?}. \
-                     Continuing - peer discovery will work when other peers announce.",
-                    e
-                );
+                tracing::warn!("FeiQ broadcast failed: {:?}, trying standard format", e);
+                // Fallback to standard IPMsg format
+                let bytes = serialize_message(&msg)?;
+                if let Err(e2) = self.udp.broadcast(&bytes) {
+                    tracing::warn!("Standard broadcast failed: {:?} (normal on macOS)", e2);
+                }
             }
         }
 
@@ -208,6 +217,14 @@ impl PeerDiscovery {
         self.udp.local_addr()
     }
 
+    /// Get local user_id
+    ///
+    /// # Returns
+    /// * `&str` - Local user_id
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+
     /// Get local username
     ///
     /// # Returns
@@ -228,7 +245,7 @@ impl PeerDiscovery {
     ///
     /// # Returns
     /// * `u64` - Next unique packet ID
-    fn next_packet_id(&self) -> u64 {
+    pub fn next_packet_id(&self) -> u64 {
         self.packet_id.fetch_add(1, Ordering::SeqCst)
     }
 
@@ -244,6 +261,7 @@ impl PeerDiscovery {
         ProtocolMessage {
             version: 1,
             packet_id: self.next_packet_id(),
+            user_id: self.user_id.clone(),
             sender_name: self.username.clone(),
             sender_host: self.hostname.clone(),
             msg_type,
@@ -267,7 +285,12 @@ mod tests {
     #[test]
     fn test_peer_discovery_creation() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
+        let discovery = PeerDiscovery::new(
+            udp,
+            "T0170006".to_string(),
+            "TestUser".to_string(),
+            "test-host".to_string(),
+        );
 
         assert_eq!(discovery.username(), "TestUser");
         assert_eq!(discovery.hostname(), "test-host");
@@ -276,7 +299,7 @@ mod tests {
     #[test]
     fn test_peer_discovery_with_defaults() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::with_defaults(udp);
+        let discovery = PeerDiscovery::with_defaults(udp, "T0170006".to_string());
 
         // Username should be non-empty
         assert!(!discovery.username().is_empty());
@@ -287,7 +310,12 @@ mod tests {
     #[test]
     fn test_announce_online() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "TestUser".to_string(), "test-host".to_string());
+        let discovery = PeerDiscovery::new(
+            udp,
+            "T0170006".to_string(),
+            "TestUser".to_string(),
+            "test-host".to_string(),
+        );
 
         // Should not fail
         let result = discovery.announce_online();
@@ -297,7 +325,12 @@ mod tests {
     #[test]
     fn test_create_message() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "Alice".to_string(), "alice-pc".to_string());
+        let discovery = PeerDiscovery::new(
+            udp,
+            "T0170006".to_string(),
+            "Alice".to_string(),
+            "alice-pc".to_string(),
+        );
 
         let msg = discovery.create_message(msg_type::IPMSG_SENDMSG, "Hello".to_string());
 
@@ -311,7 +344,12 @@ mod tests {
     #[test]
     fn test_packet_id_increment() {
         let udp = UdpTransport::bind(0).unwrap();
-        let discovery = PeerDiscovery::new(udp, "Test".to_string(), "test".to_string());
+        let discovery = PeerDiscovery::new(
+            udp,
+            "T0170006".to_string(),
+            "Test".to_string(),
+            "test".to_string(),
+        );
 
         let id1 = discovery.next_packet_id();
         let id2 = discovery.next_packet_id();

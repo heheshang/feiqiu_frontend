@@ -31,6 +31,7 @@ impl PeerRepository {
     /// # Arguments
     /// * `ip` - IP address as string
     /// * `port` - UDP port
+    /// * `user_id` - User unique ID (optional)
     /// * `username` - Username (optional)
     /// * `hostname` - Hostname (optional)
     /// * `last_seen` - Last activity timestamp
@@ -38,6 +39,7 @@ impl PeerRepository {
         &self,
         ip: String,
         port: i32,
+        user_id: Option<String>,
         username: Option<String>,
         hostname: Option<String>,
         last_seen: NaiveDateTime,
@@ -49,6 +51,7 @@ impl PeerRepository {
             // Update existing peer
             let mut active: PeerActiveModel = existing.into();
             active.port = Set(port);
+            active.user_id = Set(user_id);
             active.username = Set(username);
             active.hostname = Set(hostname);
             active.last_seen = Set(last_seen);
@@ -69,6 +72,7 @@ impl PeerRepository {
             // Insert new peer with NotSet for id (auto-increment)
             let active = PeerActiveModel {
                 id: NotSet,
+                user_id: Set(user_id),
                 ip: Set(ip.clone()),
                 port: Set(port),
                 username: Set(username),

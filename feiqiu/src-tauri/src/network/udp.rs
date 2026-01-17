@@ -42,8 +42,8 @@ impl UdpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::NeoLanError;
     /// let udp = UdpTransport::bind(2425)?;
     /// # Ok::<(), NeoLanError>(())
     /// ```
@@ -118,8 +118,8 @@ impl UdpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::NeoLanError;
     /// let udp = UdpTransport::bind(2425)?;
     /// udp.set_broadcast_enabled(true)?;
     /// # Ok::<(), NeoLanError>(())
@@ -143,8 +143,8 @@ impl UdpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::NeoLanError;
     /// let udp = UdpTransport::bind(2425)?;
     /// udp.set_broadcast_enabled(true)?;
     /// udp.broadcast(b"Hello, LAN!")?;
@@ -178,8 +178,8 @@ impl UdpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::NeoLanError;
     /// # use std::net::SocketAddr;
     /// let udp = UdpTransport::bind(2425)?;
     /// let addr = "192.168.1.100:2425".parse::<SocketAddr>().unwrap();
@@ -208,8 +208,8 @@ impl UdpTransport {
     ///
     /// # Examples
     /// ```no_run
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::NeoLanError;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::NeoLanError;
     /// let udp = UdpTransport::bind(2425)?;
     /// let mut buffer = [0u8; 65535];
     /// let (len, sender) = udp.recv_from(&mut buffer)?;

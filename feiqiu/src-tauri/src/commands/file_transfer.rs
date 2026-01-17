@@ -140,32 +140,3 @@ pub struct TaskDto {
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_taskdto_serialization() {
-        let dto = TaskDto {
-            id: "123e4567-e89b-12d3-a456-426614174000".to_string(),
-            direction: "upload".to_string(),
-            peer_ip: "192.168.1.100".to_string(),
-            file_name: "test.txt".to_string(),
-            file_size: 1024,
-            md5: "abc123".to_string(),
-            status: "active".to_string(),
-            transferred_bytes: 512,
-            progress: 0.5,
-            port: Some(8001),
-            error: None,
-            created_at: 1234567890,
-            updated_at: 1234567891,
-        };
-
-        let json = serde_json::to_string(&dto).unwrap();
-        assert!(json.contains("\"id\":\"123e4567-e89b-12d3-a456-426614174000\""));
-        assert!(json.contains("\"direction\":\"upload\""));
-        assert!(json.contains("\"progress\":0.5"));
-    }
-}

@@ -12,6 +12,7 @@ use crate::config::AppConfig;
 use crate::modules::file_transfer::FileTransferResponse;
 use crate::modules::message::types::{Message, MessageType};
 use crate::modules::peer::types::PeerInfo;
+use crate::network::protocol::{get_local_mac_address, serialize_message_for_feiq};
 use crate::network::udp::UdpTransport;
 use crate::network::{get_message_type_name, msg_type, serialize_message, ProtocolMessage};
 use crate::state::app_state::TauriEvent;
@@ -68,13 +69,16 @@ impl MessageHandler {
     ///
     /// # Examples
     /// ```
-    /// # use neolan_lib::modules::message::handler::MessageHandler;
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::config::AppConfig;
-    /// let udp = UdpTransport::bind(2425)?;
+    /// # use feiqiu::modules::message::handler::MessageHandler;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::config::AppConfig;
+    /// # use std::net::IpAddr;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let udp = UdpTransport::bind(0)?; // Use port 0 to get an available port
     /// let config = AppConfig::default();
     /// let handler = MessageHandler::new(udp, config);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// Ok(())
+    /// # }
     /// ```
     pub fn new(udp: UdpTransport, config: AppConfig) -> Self {
         Self {
@@ -163,16 +167,18 @@ impl MessageHandler {
     ///
     /// # Examples
     /// ```
-    /// # use neolan_lib::modules::message::handler::MessageHandler;
-    /// # use neolan_lib::network::udp::UdpTransport;
-    /// # use neolan_lib::config::AppConfig;
+    /// # use feiqiu::modules::message::handler::MessageHandler;
+    /// # use feiqiu::network::udp::UdpTransport;
+    /// # use feiqiu::config::AppConfig;
     /// # use std::net::IpAddr;
-    /// let udp = UdpTransport::bind(2425)?;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let udp = UdpTransport::bind(0)?;
     /// let config = AppConfig::default();
     /// let handler = MessageHandler::new(udp, config);
     /// let target_ip = "192.168.1.100".parse::<IpAddr>().unwrap();
     /// handler.send_text_message(target_ip, "Hello, World!")?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// Ok(())
+    /// # }
     /// ```
     #[instrument(skip(self), fields(target_ip = %target_ip, content_len = content.len()))]
     pub fn send_text_message(&self, target_ip: IpAddr, content: &str) -> Result<()> {
@@ -189,45 +195,44 @@ impl MessageHandler {
             ));
         }
 
-        // Create target peer info (use configured UDP port)
-        let target_peer = PeerInfo::new(target_ip, self.config.udp_port, None);
+        // Get MAC address for FeiQ format
+        let mac_address =
+            crate::network::get_local_mac_address().unwrap_or_else(|_| "000000000000".to_string());
 
-        // Create sender peer info (local)
-        let sender_peer = PeerInfo::new(
-            self.config.bind_ip.parse().map_err(|_| {
-                NeoLanError::Config(format!("Invalid bind IP: {}", self.config.bind_ip))
-            })?,
-            self.config.udp_port,
-            Some(self.config.username.clone()),
-        );
-
-        // Create application layer message with proper packet ID from counter
-        let message = Message {
-            id: uuid::Uuid::new_v4(),
-            packet_id: self.next_packet_id().to_string(),
-            sender: sender_peer,
-            receiver: target_peer,
-            msg_type: MessageType::Text,
+        // Create protocol message with SENDCHECKOPT flag and UTF8 encoding
+        let proto_msg = ProtocolMessage {
+            version: 1,
+            packet_id: self.next_packet_id(),
+            user_id: self.config.user_id.clone(),
+            sender_name: self.config.username.clone(),
+            sender_host: self.config.hostname.clone(),
+            msg_type: msg_type::IPMSG_SENDMSG
+                | msg_type::IPMSG_SENDCHECKOPT
+                | msg_type::IPMSG_UTF8OPT,
             content: content.to_string(),
-            timestamp: chrono::Utc::now(),
         };
 
-        // Convert to protocol message with SENDCHECKOPT flag
-        // This tells the receiver to send back an IPMSG_RECVMSG acknowledgment
-        let proto_msg = message.to_protocol_with_options(
-            &self.config.username,
-            &self.config.hostname,
-            msg_type::IPMSG_SENDCHECKOPT, // Request acknowledgment
-        );
-
-        // Serialize to bytes
-        let bytes = serialize_message(&proto_msg)?;
-
-        // Send via UDP (use configured UDP port)
+        // Try FeiQ format first, fall back to standard format
         let target_addr = SocketAddr::new(target_ip, self.config.udp_port);
-        self.udp.send_to(&bytes, target_addr)?;
 
-        tracing::debug!("Message sent successfully to {}", target_ip);
+        let feiq_bytes = crate::network::serialize_message_for_feiq(
+            &proto_msg,
+            &mac_address,
+            self.config.udp_port,
+        )?;
+
+        match self.udp.send_to(&feiq_bytes, target_addr) {
+            Ok(()) => {
+                tracing::debug!("Message sent (FeiQ format) to {}", target_ip);
+            }
+            Err(e) => {
+                tracing::warn!("FeiQ format send failed: {:?}, trying standard format", e);
+                let bytes = serialize_message(&proto_msg)?;
+                self.udp.send_to(&bytes, target_addr)?;
+                tracing::debug!("Message sent (standard format) to {}", target_ip);
+            }
+        }
+
         Ok(())
     }
 
@@ -283,7 +288,7 @@ impl MessageHandler {
     ///
     /// # Returns
     /// A monotonically increasing packet ID
-    fn next_packet_id(&self) -> u64 {
+    pub fn next_packet_id(&self) -> u64 {
         self.packet_id_counter.fetch_add(1, Ordering::SeqCst)
     }
 
@@ -521,6 +526,7 @@ impl MessageHandler {
                     .upsert(
                         sender_ip.to_string(),
                         self.config.udp_port as i32,
+                        Some(proto_msg.user_id.clone()),
                         Some(proto_msg.sender_name.clone()),
                         Some(proto_msg.sender_host.clone()),
                         chrono::Utc::now().naive_utc(),
@@ -537,12 +543,12 @@ impl MessageHandler {
 
             // 2. Sync to contacts table via contact_repo
             if let Some(ref contact_repo) = self.contact_repo {
-                let peer_id = peer.id;
+                let user_id = peer.id;
                 rt.block_on(async { contact_repo.sync_from_peers(vec![peer]).await })?;
                 tracing::info!(
-                    "✅ Contact synced for peer: {} (peer_id={})",
+                    "✅ Contact synced for peer: {} (user_id={})",
                     sender_ip,
-                    peer_id
+                    user_id
                 );
             }
         } else {
@@ -612,6 +618,7 @@ impl MessageHandler {
             let message_model = MessageModel {
                 id: 0, // Auto-increment
                 msg_id: proto_msg.packet_id.to_string(),
+                user_id: Some(proto_msg.user_id.clone()),
                 sender_ip: sender_ip.to_string(),
                 sender_name: proto_msg.sender_name.clone(),
                 receiver_ip: local_ip.to_string(),

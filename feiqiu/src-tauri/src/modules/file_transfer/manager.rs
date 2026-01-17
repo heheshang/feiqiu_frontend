@@ -149,6 +149,7 @@ impl FileTransferManager {
         let proto_msg = ProtocolMessage {
             version: PROTOCOL_VERSION as u8,
             packet_id,
+            user_id: String::new(),
             sender_name: self.username.clone(),
             sender_host: self.hostname.clone(),
             msg_type: msg_type::IPMSG_GETFILEDATA,

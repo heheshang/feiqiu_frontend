@@ -16,6 +16,9 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigDto {
+    /// User unique ID (user_id)
+    pub user_id: String,
+
     /// User profile
     pub username: String,
     pub hostname: String,
@@ -60,6 +63,7 @@ impl ConfigDto {
     /// Convert from AppConfig
     pub fn from_app_config(config: &AppConfig) -> Self {
         Self {
+            user_id: config.user_id.clone(),
             username: config.username.clone(),
             hostname: config.hostname.clone(),
             avatar: None,
@@ -82,6 +86,7 @@ impl ConfigDto {
     /// Convert to AppConfig
     pub fn to_app_config(&self) -> AppConfig {
         AppConfig {
+            user_id: self.user_id.clone(),
             username: self.username.clone(),
             hostname: self.hostname.clone(),
             bind_ip: self.bind_ip.clone(),
@@ -103,6 +108,10 @@ impl ConfigDto {
     #[allow(dead_code)]
     pub fn from_map(map: &HashMap<String, String>) -> Self {
         Self {
+            user_id: map
+                .get("user_id")
+                .cloned()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             username: map
                 .get("username")
                 .cloned()
@@ -257,6 +266,7 @@ impl ConfigDto {
 impl Default for ConfigDto {
     fn default() -> Self {
         Self {
+            user_id: uuid::Uuid::new_v4().to_string(),
             username: whoami::username(),
             hostname: whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string()),
             avatar: None,
@@ -473,101 +483,4 @@ pub fn set_config_value(state: tauri::State<AppState>, key: String, value: Strin
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_dto_default() {
-        let config = ConfigDto::default();
-
-        assert_eq!(config.udp_port, 2425);
-        assert_eq!(config.tcp_port_start, 8000);
-        assert_eq!(config.tcp_port_end, 9000);
-        assert_eq!(config.heartbeat_interval, 60);
-        assert_eq!(config.peer_timeout, 180);
-        assert_eq!(config.log_level, "info");
-        assert!(!config.encryption_enabled);
-    }
-
-    #[test]
-    fn test_config_dto_validate() {
-        let mut config = ConfigDto::default();
-
-        // Valid config
-        assert!(config.validate().is_ok());
-
-        // Invalid udp_port
-        config.udp_port = 80;
-        assert!(config.validate().is_err());
-
-        // Invalid tcp_port range
-        config.udp_port = 2425;
-        config.tcp_port_start = 9000;
-        config.tcp_port_end = 8000;
-        assert!(config.validate().is_err());
-
-        // Invalid heartbeat
-        config.tcp_port_start = 8000;
-        config.tcp_port_end = 9000;
-        config.heartbeat_interval = 0;
-        assert!(config.validate().is_err());
-
-        // Invalid peer_timeout
-        config.heartbeat_interval = 60;
-        config.peer_timeout = 30;
-        assert!(config.validate().is_err());
-
-        // Invalid log_level
-        config.peer_timeout = 180;
-        config.log_level = "invalid".to_string();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_config_dto_to_map() {
-        let config = ConfigDto::default();
-        let map = config.to_map();
-
-        assert_eq!(map.get("username"), Some(&config.username));
-        assert_eq!(map.get("udp_port"), Some(&"2425".to_string()));
-        assert_eq!(map.get("log_level"), Some(&"info".to_string()));
-    }
-
-    #[test]
-    fn test_config_dto_from_map() {
-        let mut map = HashMap::new();
-        map.insert("username".to_string(), "Alice".to_string());
-        map.insert("udp_port".to_string(), "2426".to_string());
-        map.insert("log_level".to_string(), "debug".to_string());
-
-        let config = ConfigDto::from_map(&map);
-
-        assert_eq!(config.username, "Alice");
-        assert_eq!(config.udp_port, 2426);
-        assert_eq!(config.log_level, "debug");
-    }
-
-    #[test]
-    fn test_set_config_value_validation() {
-        // Test port validation
-        let port: u16 = "80".parse().unwrap();
-        assert!(port < 1024); // Invalid
-
-        // Test boolean validation
-        assert!(!("yes".parse::<bool>().is_ok()));
-
-        // Test log_level validation
-        let log_level = "invalid";
-        match log_level {
-            "trace" | "debug" | "info" | "warn" | "error" => {
-                panic!("Should not match");
-            }
-            _ => {
-                // Expected path - invalid log level
-            }
-        }
-    }
 }

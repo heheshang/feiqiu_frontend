@@ -8,6 +8,10 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = true)]
     pub id: i32,
 
+    /// User ID of the sender (for message association)
+    #[sea_orm(column_type = "Text", nullable)]
+    pub user_id: Option<String>,
+
     #[sea_orm(column_type = "Text", unique)]
     pub msg_id: String,
 

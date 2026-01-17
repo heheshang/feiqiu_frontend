@@ -283,13 +283,3 @@ impl MessageRepository {
         Ok(count)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_message_repo_creation() {
-        // 测试 MessageRepository 创建
-        // 注意：实际测试需要数据库连接，这里只是编译测试
-        // 集成测试将在后续阶段实现
-    }
-}

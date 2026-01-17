@@ -30,6 +30,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 whoami = "1"
 dirs = "5"
 md-5 = "0.10"
+hex = "0.4"
 
 # 示例程序依赖
 ctrlc = "3"

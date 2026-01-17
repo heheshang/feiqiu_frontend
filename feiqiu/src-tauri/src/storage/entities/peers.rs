@@ -8,6 +8,10 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = true)]
     pub id: i32,
 
+    /// User unique ID (user_id) - used for unique identification in LAN
+    #[sea_orm(column_type = "Text", nullable)]
+    pub user_id: Option<String>,
+
     #[sea_orm(column_type = "Text")]
     pub ip: String,
 

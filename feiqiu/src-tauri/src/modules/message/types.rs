@@ -119,8 +119,8 @@ impl Message {
     ///
     /// # Examples
     /// ```
-    /// # use neolan_lib::modules::message::types::{Message, MessageType};
-    /// # use neolan_lib::modules::peer::types::PeerInfo;
+    /// # use feiqiu::modules::message::types::{Message, MessageType};
+    /// # use feiqiu::modules::peer::types::PeerInfo;
     /// # use std::net::{IpAddr, Ipv4Addr};
     /// let sender = PeerInfo::new(
     ///     IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
@@ -132,7 +132,7 @@ impl Message {
     ///     2425,
     ///     Some("Bob".to_string())
     /// );
-    /// let msg = Message::new_text(sender, receiver, "Hello World");
+    /// let msg = Message::new_text(sender, receiver, "Hello World".to_string());
     /// ```
     #[allow(dead_code)]
     pub fn new_text(sender: PeerInfo, receiver: PeerInfo, content: String) -> Self {
@@ -221,6 +221,7 @@ impl Message {
                 .packet_id
                 .parse()
                 .unwrap_or_else(|_| Uuid::new_v4().as_u128() as u64),
+            user_id: String::new(),
             sender_name: sender_name.to_string(),
             sender_host: sender_host.to_string(),
             msg_type,
@@ -357,6 +358,7 @@ mod tests {
         let proto_msg = ProtocolMessage {
             version: 1,
             packet_id: 123,
+            user_id: "T0170006".to_string(),
             sender_name: "Alice".to_string(),
             sender_host: "alice-pc".to_string(),
             msg_type: msg_type::IPMSG_SENDMSG,

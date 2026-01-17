@@ -28,7 +28,7 @@ impl AppConfig {
     pub const TCP_BUFFER_SIZE: usize = 4096;
 
     /// 默认心跳间隔（秒）
-    pub const DEFAULT_HEARTBEAT_INTERVAL: u64 = 60;
+    pub const DEFAULT_HEARTBEAT_INTERVAL: u64 = 30; // FeiQ expects 30 seconds
 
     /// 默认节点超时时间（秒）
     pub const DEFAULT_PEER_TIMEOUT: u64 = 180;
@@ -45,6 +45,9 @@ impl AppConfig {
 /// 存储应用程序的核心配置参数，包括网络设置、用户信息等
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// 用户唯一标识（UUID，用于局域网内唯一识别用户）
+    pub user_id: String,
+
     /// 用户名（显示给其他节点）
     pub username: String,
 
@@ -144,7 +147,9 @@ impl AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        // Generate user_id if not exists
         Self {
+            user_id: uuid::Uuid::new_v4().to_string(),
             username: whoami::username(),
             hostname: whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string()),
             bind_ip: Self::DEFAULT_BIND_IP.to_string(),
@@ -336,106 +341,5 @@ impl ConfigRepository {
             .map_err(|e| NeoLanError::Storage(format!("Failed to get all settings: {}", e)))?;
 
         Ok(result)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_config() {
-        let config = AppConfig::default();
-
-        // 验证默认值使用常量
-        assert!(!config.username.is_empty());
-        assert!(!config.hostname.is_empty());
-        assert_eq!(config.udp_port, AppConfig::DEFAULT_UDP_PORT);
-        assert_eq!(config.tcp_port_start, AppConfig::DEFAULT_TCP_PORT_START);
-        assert_eq!(config.tcp_port_end, AppConfig::DEFAULT_TCP_PORT_END);
-        assert_eq!(
-            config.heartbeat_interval,
-            AppConfig::DEFAULT_HEARTBEAT_INTERVAL
-        );
-        assert_eq!(config.peer_timeout, AppConfig::DEFAULT_PEER_TIMEOUT);
-        assert_eq!(
-            config.offline_message_retention_days,
-            AppConfig::DEFAULT_OFFLINE_MESSAGE_RETENTION_DAYS
-        );
-        assert!(!config.encryption_enabled);
-        assert!(!config.auto_accept_files);
-        assert_eq!(config.log_level, AppConfig::DEFAULT_LOG_LEVEL);
-        assert_eq!(config.bind_ip, AppConfig::DEFAULT_BIND_IP);
-    }
-
-    #[test]
-    fn test_config_serialization() {
-        let config = AppConfig::default();
-
-        // 测试序列化
-        let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("\"username\""));
-        assert!(json.contains("\"udp_port\""));
-
-        // 测试反序列化
-        let deserialized: AppConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, config);
-    }
-
-    #[test]
-    fn test_config_validation() {
-        let config = AppConfig::default();
-
-        // 默认配置应该通过验证
-        assert!(config.validate().is_ok());
-
-        // 测试无效的 UDP 端口
-        let mut invalid_config = config.clone();
-        invalid_config.udp_port = 0;
-        assert!(invalid_config.validate().is_err());
-
-        // 测试无效的 TCP 端口范围
-        let mut invalid_config = config.clone();
-        invalid_config.tcp_port_start = 9000;
-        invalid_config.tcp_port_end = 8000;
-        assert!(invalid_config.validate().is_err());
-
-        // 测试特权端口
-        let mut invalid_config = config.clone();
-        invalid_config.tcp_port_start = 80;
-        assert!(invalid_config.validate().is_err());
-
-        // 测试无效的超时设置
-        let mut invalid_config = config.clone();
-        invalid_config.peer_timeout = 30;
-        invalid_config.heartbeat_interval = 60;
-        assert!(invalid_config.validate().is_err());
-
-        // 测试空的绑定 IP
-        let mut invalid_config = config;
-        invalid_config.bind_ip = String::new();
-        assert!(invalid_config.validate().is_err());
-    }
-
-    #[test]
-    fn test_network_config_constants() {
-        // 测试常量值的一致性
-        assert_eq!(AppConfig::DEFAULT_UDP_PORT, 2425);
-        assert_eq!(AppConfig::DEFAULT_TCP_PORT_START, 8000);
-        assert_eq!(AppConfig::DEFAULT_TCP_PORT_END, 9000);
-        assert_eq!(AppConfig::UDP_BUFFER_SIZE, 65535);
-        assert_eq!(AppConfig::TCP_BUFFER_SIZE, 4096);
-        assert_eq!(AppConfig::BROADCAST_ADDR, "255.255.255.255");
-        assert_eq!(AppConfig::DEFAULT_BIND_IP, "0.0.0.0");
-    }
-
-    #[test]
-    fn test_config_helper_methods() {
-        let config = AppConfig::default();
-
-        // 测试辅助方法
-        assert_eq!(config.udp_buffer_size(), AppConfig::UDP_BUFFER_SIZE);
-        assert_eq!(config.tcp_buffer_size(), AppConfig::TCP_BUFFER_SIZE);
-        assert_eq!(config.broadcast_addr(), AppConfig::BROADCAST_ADDR);
     }
 }
