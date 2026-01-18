@@ -1,6 +1,7 @@
 // File transfer commands - handle file transfer requests from frontend
 use crate::state::AppState;
 use crate::{NeoLanError, Result};
+use std::sync::Arc;
 use tauri::State;
 use uuid::Uuid;
 
@@ -12,36 +13,58 @@ use uuid::Uuid;
 /// * `state` - Application state
 ///
 /// # Returns
-/// * `Ok(String)` - Task ID for tracking the download
+/// * `Ok(String)` - Task ID for tracking download
 /// * `Err(String)` - Accept failed
 #[tauri::command]
 pub fn accept_file_transfer(
     request_id: String,
-    _tcp_port: u16,
-    _state: State<'_, AppState>,
+    tcp_port: u16,
+    state: State<'_, AppState>,
 ) -> Result<String> {
     tracing::info!("Accepting file transfer request: {}", request_id);
 
-    // Parse request ID
     let uuid = Uuid::parse_str(&request_id)
         .map_err(|_| NeoLanError::Validation(format!("Invalid request ID: {}", request_id)))?;
 
-    // TODO: Get pending request from a pending requests storage
-    // For now, we need to pass the full request info or store it somewhere
-    // This is a simplified implementation that needs to be enhanced
+    let manager = state
+        .get_file_transfer_manager()
+        .ok_or_else(|| NeoLanError::Other("File transfer manager not initialized".to_string()))?;
 
-    // In a complete implementation, we would:
-    // 1. Look up the pending request by ID
-    // 2. Get the FileTransferResponse handler
-    // 3. Call send_response() with accept=true and the tcp_port
-    // 4. Create download task
-    // 5. Return task ID
+    let request = manager.get_pending_request(&uuid).ok_or_else(|| {
+        NeoLanError::FileTransfer(format!("Pending request not found: {}", request_id))
+    })?;
 
-    // For now, return a placeholder response
-    tracing::warn!("accept_file_transfer not fully implemented - needs pending request storage");
+    let config = state.get_config();
+    let response_handler = crate::modules::file_transfer::FileTransferResponse::new(
+        Arc::new(manager.clone()),
+        config.username.clone(),
+        config.hostname.clone(),
+    );
 
-    // Placeholder: would return the actual download task ID
-    Ok(uuid.to_string())
+    response_handler.send_response(&request, true, Some(tcp_port))?;
+
+    let task = crate::modules::file_transfer::types::TransferTask::new_download(
+        request.sender_ip,
+        request.file_name.clone(),
+        request.file_size,
+        request.md5.clone(),
+    );
+    // Set the TCP port for the task
+    let mut task = task;
+    task.port = Some(tcp_port);
+
+    let task_id = task.id;
+
+    if let Some(mgr) = state.get_file_transfer_manager() {
+        mgr.add_task(task)?;
+        mgr.remove_pending_request(&uuid)?;
+    }
+
+    let event = request.to_event();
+    state.emit_tauri_event(event);
+
+    tracing::info!("File transfer accepted: {}", task_id);
+    Ok(task_id.to_string())
 }
 
 /// Reject a file transfer request
@@ -54,21 +77,35 @@ pub fn accept_file_transfer(
 /// * `Ok(())` - Rejection sent successfully
 /// * `Err(String)` - Reject failed
 #[tauri::command]
-pub fn reject_file_transfer(request_id: String, _state: State<'_, AppState>) -> Result<()> {
+pub fn reject_file_transfer(request_id: String, state: State<'_, AppState>) -> Result<()> {
     tracing::info!("Rejecting file transfer request: {}", request_id);
 
-    // Parse request ID
-    let _uuid = Uuid::parse_str(&request_id)
+    let uuid = Uuid::parse_str(&request_id)
         .map_err(|_| NeoLanError::Validation(format!("Invalid request ID: {}", request_id)))?;
 
-    // TODO: Similar to accept_file_transfer, we need to:
-    // 1. Look up the pending request
-    // 2. Get the FileTransferResponse handler
-    // 3. Call send_response() with accept=false
-    // 4. Remove pending request from storage
+    let manager = state
+        .get_file_transfer_manager()
+        .ok_or_else(|| NeoLanError::Other("File transfer manager not initialized".to_string()))?;
 
-    tracing::warn!("reject_file_transfer not fully implemented - needs pending request storage");
+    let request = manager.get_pending_request(&uuid).ok_or_else(|| {
+        NeoLanError::FileTransfer(format!("Pending request not found: {}", request_id))
+    })?;
 
+    let config = state.get_config();
+    let response_handler = crate::modules::file_transfer::FileTransferResponse::new(
+        Arc::new(manager.clone()),
+        config.username.clone(),
+        config.hostname.clone(),
+    );
+
+    response_handler.send_response(&request, false, None)?;
+
+    manager.remove_pending_request(&uuid)?;
+
+    let event = request.to_rejected_event();
+    state.emit_tauri_event(event);
+
+    tracing::info!("File transfer rejected: {}", request_id);
     Ok(())
 }
 
@@ -80,11 +117,32 @@ pub fn reject_file_transfer(request_id: String, _state: State<'_, AppState>) -> 
 /// # Returns
 /// * `Vec<TaskDto>` - List of all transfer tasks
 #[tauri::command]
-pub fn get_file_transfers(_state: State<'_, AppState>) -> Vec<TaskDto> {
-    // TODO: Return all transfer tasks from FileTransferManager
-    // For now, return empty list
-    tracing::warn!("get_file_transfers not fully implemented");
-    Vec::new()
+pub fn get_file_transfers(state: State<'_, AppState>) -> Vec<TaskDto> {
+    let manager = match state.get_file_transfer_manager() {
+        Some(mgr) => mgr,
+        None => return Vec::new(),
+    };
+
+    let all_tasks = manager.get_all_tasks();
+
+    all_tasks
+        .into_iter()
+        .map(|task| TaskDto {
+            id: task.id.to_string(),
+            direction: task.direction.to_string(),
+            peer_ip: task.peer_ip.to_string(),
+            file_name: task.file_name.clone(),
+            file_size: task.file_size,
+            md5: task.md5.clone(),
+            status: task.status.to_string(),
+            transferred_bytes: task.transferred_bytes,
+            progress: task.progress(),
+            port: task.port,
+            error: task.error.clone(),
+            created_at: task.created_at.timestamp_millis(),
+            updated_at: task.updated_at.timestamp_millis(),
+        })
+        .collect()
 }
 
 /// Cancel a file transfer task

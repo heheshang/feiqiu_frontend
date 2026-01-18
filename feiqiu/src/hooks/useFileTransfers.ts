@@ -1,13 +1,14 @@
 /**
  * useFileTransfers Hook
  *
- * Custom hook for fetching and managing file transfer data from the backend.
+ * Custom hook for fetching and managing file transfer data from backend.
  * Provides real-time updates when transfer requests are received, progress changes, or transfers complete/fail.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { transfersApi } from '@/lib/api'
 import { eventsManager, onEvent } from '@/lib/events'
+import { toFrontendTransfer } from '@/lib/converters'
 import type { FileTransfer } from '@/lib/converters'
 import type {
   FileTransferRequestedEvent,
@@ -15,6 +16,7 @@ import type {
   FileTransferCompletedEvent,
   FileTransferFailedEvent,
 } from '@/lib/events'
+import { useTransfersStore } from '@/stores/transfersStore'
 
 /**
  * Hook return value
@@ -105,10 +107,17 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
     subscribeToEvents = true,
   } = options
 
-  const [transfers, setTransfers] = useState<FileTransfer[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
-  const [stats, setStats] = useState<UseFileTransfersResult['stats']>(null)
+  const transfers = useTransfersStore((state) => state.transfers)
+  const isLoading = useTransfersStore((state) => state.isLoading)
+  const error = useTransfersStore((state) => state.error)
+  const stats = useTransfersStore((state) => state.stats)
+
+  const setTransfers = useTransfersStore((state) => state.setTransfers)
+  const setTransfersLoading = useTransfersStore((state) => state.setTransfersLoading)
+  const setTransfersError = useTransfersStore((state) => state.setTransfersError)
+  const setTransfersStats = useTransfersStore((state) => state.setTransfersStats)
+  const updateTransfer = useTransfersStore((state) => state.updateTransfer)
+  const addTransfer = useTransfersStore((state) => state.addTransfer)
 
   // Use ref to track if component is mounted
   const isMountedRef = useRef(true)
@@ -122,8 +131,8 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
       return
     }
 
-    setIsLoading(true)
-    setError(null)
+    setTransfersLoading(true)
+    setTransfersError(null)
 
     try {
       const [transfersData, statsData] = await Promise.all([
@@ -133,19 +142,20 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
 
       if (isMountedRef.current) {
         setTransfers(transfersData)
-        setStats(statsData)
+        setTransfersStats(statsData)
       }
     } catch (err) {
       if (isMountedRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)))
+        const error = err instanceof Error ? err : new Error(String(err))
+        setTransfersError(error)
         console.error('[useFileTransfers] Failed to fetch transfers:', err)
       }
     } finally {
       if (isMountedRef.current) {
-        setIsLoading(false)
+        setTransfersLoading(false)
       }
     }
-  }, [enabled, filters])
+  }, [enabled, filters, setTransfersLoading, setTransfersError, setTransfers, setTransfersStats])
 
   /**
    * Manually refresh transfers
@@ -161,20 +171,15 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
     try {
       await transfersApi.acceptFileTransfer(transferId)
 
-      // Update local state optimistically
       if (isMountedRef.current) {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === transferId ? { ...t, status: 'transferring' as any } : t
-          )
-        )
+        updateTransfer(transferId, { status: 'transferring' as any })
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setTransfersError(error)
       throw error
     }
-  }, [])
+  }, [updateTransfer, setTransfersError])
 
   /**
    * Reject a file transfer
@@ -183,20 +188,15 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
     try {
       await transfersApi.rejectFileTransfer(transferId)
 
-      // Update local state
       if (isMountedRef.current) {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === transferId ? { ...t, status: 'cancelled' as any } : t
-          )
-        )
+        updateTransfer(transferId, { status: 'cancelled' as any })
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setTransfersError(error)
       throw error
     }
-  }, [])
+  }, [updateTransfer, setTransfersError])
 
   /**
    * Cancel a file transfer
@@ -205,20 +205,15 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
     try {
       await transfersApi.cancelFileTransfer(transferId)
 
-      // Update local state
       if (isMountedRef.current) {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === transferId ? { ...t, status: 'cancelled' as any } : t
-          )
-        )
+        updateTransfer(transferId, { status: 'cancelled' as any })
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setTransfersError(error)
       throw error
     }
-  }, [])
+  }, [updateTransfer, setTransfersError])
 
   /**
    * Setup event listeners for real-time updates
@@ -233,79 +228,55 @@ export function useFileTransfers(options: UseFileTransfersOptions = {}): UseFile
     // Listen for new transfer requests
     subscriptions.push(
       onEvent<FileTransferRequestedEvent>('file_transfer_requested', (event) => {
-        const newTransfer = event.transfer as any
+        const transferDto = event.transfer as any
 
-        // Check if the transfer matches our filters
-        if (filters?.peerIp && newTransfer.peerIp !== filters.peerIp) {
+        if (filters?.peerIp && transferDto.peer_ip !== filters.peerIp) {
           return
         }
-        if (filters?.direction && newTransfer.direction !== filters.direction) {
+        if (filters?.direction && transferDto.direction !== filters.direction) {
           return
         }
 
-        setTransfers((prev) => [...prev, newTransfer])
+        const newTransfer = toFrontendTransfer(transferDto)
+        addTransfer(newTransfer)
       })
     )
 
     // Listen for transfer progress updates
     subscriptions.push(
       onEvent<FileTransferProgressEvent>('file_transfer_progress', (event) => {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === event.transfer_id
-              ? {
-                  ...t,
-                  progress: event.progress,
-                  // Could calculate transferSpeed and remainingTime here
-                }
-              : t
-          )
-        )
+        updateTransfer(event.transfer_id, { progress: event.progress })
       })
     )
 
     // Listen for completed transfers
     subscriptions.push(
       onEvent<FileTransferCompletedEvent>('file_transfer_completed', (event) => {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === event.transfer_id
-              ? {
-                  ...t,
-                  status: 'completed' as any,
-                  progress: 100,
-                  endTime: new Date().toISOString(),
-                }
-              : t
-          )
-        )
+        updateTransfer(event.transfer_id, {
+          status: 'completed' as any,
+          progress: 100,
+          endTime: new Date().toISOString(),
+        })
       })
     )
 
     // Listen for failed transfers
     subscriptions.push(
       onEvent<FileTransferFailedEvent>('file_transfer_failed', (event) => {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === event.transfer_id
-              ? {
-                  ...t,
-                  status: 'failed' as any,
-                  errorMessage: event.error,
-                }
-              : t
-          )
-        )
+        updateTransfer(event.transfer_id, {
+          status: 'failed' as any,
+          errorMessage: event.error,
+        })
       })
     )
 
-    // Start the events manager if not already started
+    // Start events manager if not already started
     eventsManager.start().catch(console.error)
 
     return () => {
       subscriptions.forEach((sub) => sub.remove())
     }
-  }, [subscribeToEvents, enabled, filters])
+  }, [subscribeToEvents, enabled, filters, addTransfer, updateTransfer])
 
   /**
    * Fetch transfers on mount

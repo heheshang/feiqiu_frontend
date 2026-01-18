@@ -12,14 +12,13 @@ use crate::config::AppConfig;
 use crate::modules::file_transfer::FileTransferResponse;
 use crate::modules::message::types::{Message, MessageType};
 use crate::modules::peer::types::PeerInfo;
-use crate::network::protocol::{get_local_mac_address, serialize_message_for_feiq};
 use crate::network::udp::UdpTransport;
 use crate::network::{get_message_type_name, msg_type, serialize_message, ProtocolMessage};
 use crate::state::app_state::TauriEvent;
 use crate::state::AppState;
 use crate::storage::contact_repo::ContactRepository;
 use crate::storage::message_repo::{MessageModel, MessageRepository};
-use crate::storage::peer_repo::{PeerModel, PeerRepository};
+use crate::storage::peer_repo::PeerRepository;
 use crate::{NeoLanError, Result};
 use chrono::Utc;
 use std::net::{IpAddr, SocketAddr};
@@ -339,7 +338,7 @@ impl MessageHandler {
     /// - IPMSG_ANSENTRY (0x00000003) → Should be handled by HeartbeatMonitor
     /// - Other types → Logged and ignored
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, msg_type = %proto_msg.msg_type))]
-    pub fn handle_incoming_message(
+    pub async fn handle_incoming_message(
         &self,
         proto_msg: &ProtocolMessage,
         sender_ip: IpAddr,
@@ -373,12 +372,12 @@ impl MessageHandler {
             // ========== Message Read/Delete Status ==========
             // IPMSG_READMSG: 消息已读 (0x00000050)
             msg_type::IPMSG_READMSG => {
-                self.handle_read_msg(proto_msg, sender_ip)?;
+                self.handle_read_msg(proto_msg, sender_ip).await?;
             }
 
             // IPMSG_DELMSG: 删除消息 (0x00000060)
             msg_type::IPMSG_DELMSG => {
-                self.handle_del_msg(proto_msg, sender_ip)?;
+                self.handle_del_msg(proto_msg, sender_ip).await?;
             }
 
             // IPMSG_ANSREADMSG: 对已读消息的应答 (0x00000051)
@@ -712,7 +711,7 @@ impl MessageHandler {
 
             // Emit Tauri event for user confirmation
             if let Some(ref app_state) = self.app_state {
-                let event = handler.to_event(&pending);
+                let event = pending.to_event();
                 app_state.emit_tauri_event(event);
                 tracing::info!(
                     "Emitted file-transfer-request event: requestId={}, file={}",
@@ -733,6 +732,30 @@ impl MessageHandler {
         Ok(())
     }
 
+    pub async fn mark_message_as_delivered(&self, msg_id: &str) -> Result<()> {
+        if let Some(ref repo) = self.message_repo {
+            repo.mark_as_delivered(msg_id).await?;
+            tracing::info!("Marked message as delivered: {}", msg_id);
+        }
+        Ok(())
+    }
+
+    pub async fn mark_message_as_read(&self, msg_id: &str) -> Result<()> {
+        if let Some(ref repo) = self.message_repo {
+            repo.mark_as_read(msg_id).await?;
+            tracing::info!("Marked message as read: {}", msg_id);
+        }
+        Ok(())
+    }
+
+    pub async fn mark_message_as_deleted(&self, msg_id: &str) -> Result<()> {
+        if let Some(ref repo) = self.message_repo {
+            repo.mark_as_deleted(msg_id).await?;
+            tracing::info!("Marked message as deleted: {}", msg_id);
+        }
+        Ok(())
+    }
+
     // ==================== Additional Message Handlers ====================
 
     /// Handle receive message acknowledgment (IPMSG_RECVMSG)
@@ -742,7 +765,7 @@ impl MessageHandler {
     /// # Arguments
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
-    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, packet_id = %proto_msg.packet_id))]
+    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
     fn handle_recv_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "✅ [handle_recv_msg] Message receipt acknowledged from {}: msg_id={}, content={}",
@@ -755,7 +778,7 @@ impl MessageHandler {
         if let Some(ref app_state) = self.app_state {
             let now = Utc::now();
             let event = TauriEvent::MessageReceiptAck {
-                msg_id: proto_msg.content.clone(), // Content contains the original message ID
+                msg_id: proto_msg.content.clone(),
                 sender_ip: sender_ip.to_string(),
                 sender_name: proto_msg.sender_name.clone(),
                 acknowledged_at: now.timestamp_millis(),
@@ -767,7 +790,6 @@ impl MessageHandler {
             tracing::warn!("⚠️ [handle_recv_msg] App state not available - cannot emit message-receipt-ack event");
         }
 
-        // TODO: Update message status in database to "delivered"
         Ok(())
     }
 
@@ -779,33 +801,26 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
-    fn handle_read_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
+    async fn handle_read_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
         tracing::info!(
             "📖 Message read by {}: msg_id={}",
             sender_ip,
-            proto_msg.packet_id
+            proto_msg.content.clone()
         );
-        // TODO: Update message status in database to "read"
-        // TODO: Emit Tauri event for frontend notification
-        Ok(())
-    }
 
-    /// Handle delete message request (IPMSG_DELMSG)
-    ///
-    /// The peer wants to delete a message.
-    ///
-    /// # Arguments
-    /// * `proto_msg` - Protocol message
-    /// * `sender_ip` - Sender's IP address
-    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
-    fn handle_del_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
-        tracing::info!(
-            "🗑️ Delete message request from {}: msg_id={}",
-            sender_ip,
-            proto_msg.packet_id
-        );
-        // TODO: Mark message as deleted in database
-        // TODO: Emit Tauri event for frontend update
+        let msg_id = proto_msg.content.clone();
+
+        self.mark_message_as_delivered(&msg_id).await?;
+
+        if let Some(ref app_state) = self.app_state {
+            let now = Utc::now();
+            let event = crate::state::app_state::TauriEvent::MessageRead {
+                msg_id: msg_id.clone(),
+                read_at: now.timestamp_millis(),
+            };
+            app_state.emit_tauri_event(event);
+        }
+
         Ok(())
     }
 
@@ -824,6 +839,37 @@ impl MessageHandler {
             proto_msg.packet_id
         );
         // TODO: Handle read answer confirmation
+        Ok(())
+    }
+
+    /// Handle delete message (IPMSG_DELMSG)
+    ///
+    /// Peer has deleted a message they sent.
+    ///
+    /// # Arguments
+    /// * `proto_msg` - Protocol message
+    /// * `sender_ip` - Sender's IP address
+    #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip))]
+    async fn handle_del_msg(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
+        tracing::info!(
+            "🗑️ Message deleted by {}: msg_id={}",
+            sender_ip,
+            proto_msg.packet_id
+        );
+
+        let msg_id = proto_msg.content.clone();
+
+        self.mark_message_as_deleted(&msg_id).await?;
+
+        if let Some(ref app_state) = self.app_state {
+            let now = Utc::now();
+            let event = crate::state::app_state::TauriEvent::MessageDeleted {
+                msg_id: msg_id.clone(),
+                deleted_at: now.timestamp_millis(),
+            };
+            app_state.emit_tauri_event(event);
+        }
+
         Ok(())
     }
 
@@ -933,13 +979,14 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message received from network
     /// * `sender` - Socket address of the sender
     /// * `local_ip` - Local IP address (for receiver field)
-    pub fn route_message(
+    pub async fn route_message(
         &self,
         proto_msg: &ProtocolMessage,
         sender: SocketAddr,
         local_ip: IpAddr,
     ) -> Result<()> {
         self.handle_incoming_message(proto_msg, sender.ip(), local_ip)
+            .await
     }
 }
 

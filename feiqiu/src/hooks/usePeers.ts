@@ -1,15 +1,17 @@
 /**
  * usePeers Hook
  *
- * Custom hook for fetching and managing peer data from the backend.
+ * Custom hook for fetching and managing peer data from backend.
  * Provides real-time updates when peers are discovered, status changes, or lost.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { peersApi } from '@/lib/api'
 import { eventsManager, onEvent } from '@/lib/events'
+import { toFrontendPeer } from '@/lib/converters'
 import type { Peer } from '@/lib/converters'
 import type { PeerDiscoveredEvent, PeerStatusChangedEvent, PeerLostEvent } from '@/lib/events'
+import { usePeersStore } from '@/stores/peersStore'
 
 /**
  * Hook return value
@@ -77,10 +79,17 @@ export function usePeers(options: UsePeersOptions = {}): UsePeersResult {
     subscribeToEvents = true,
   } = options
 
-  const [peers, setPeers] = useState<Peer[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
-  const [stats, setStats] = useState<UsePeersResult['stats']>(null)
+  const peers = usePeersStore((state) => state.peers)
+  const isLoading = usePeersStore((state) => state.isLoading)
+  const error = usePeersStore((state) => state.error)
+  const stats = usePeersStore((state) => state.stats)
+
+  const setPeers = usePeersStore((state) => state.setPeers)
+  const setPeersLoading = usePeersStore((state) => state.setPeersLoading)
+  const setPeersError = usePeersStore((state) => state.setPeersError)
+  const setPeersStats = usePeersStore((state) => state.setPeersStats)
+  const addPeer = usePeersStore((state) => state.addPeer)
+  const updatePeer = usePeersStore((state) => state.updatePeer)
 
   // Use ref to track if component is mounted
   const isMountedRef = useRef(true)
@@ -94,8 +103,8 @@ export function usePeers(options: UsePeersOptions = {}): UsePeersResult {
       return
     }
 
-    setIsLoading(true)
-    setError(null)
+    setPeersLoading(true)
+    setPeersError(null)
 
     try {
       const [peersData, statsData] = await Promise.all([
@@ -105,19 +114,20 @@ export function usePeers(options: UsePeersOptions = {}): UsePeersResult {
 
       if (isMountedRef.current) {
         setPeers(peersData)
-        setStats(statsData)
+        setPeersStats(statsData)
       }
     } catch (err) {
       if (isMountedRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)))
+        const error = err instanceof Error ? err : new Error(String(err))
+        setPeersError(error)
         console.error('[usePeers] Failed to fetch peers:', err)
       }
     } finally {
       if (isMountedRef.current) {
-        setIsLoading(false)
+        setPeersLoading(false)
       }
     }
-  }, [enabled])
+  }, [enabled, setPeersLoading, setPeersError, setPeers, setPeersStats])
 
   /**
    * Manually refresh peers
@@ -139,49 +149,37 @@ export function usePeers(options: UsePeersOptions = {}): UsePeersResult {
     // Listen for new peers
     subscriptions.push(
       onEvent<PeerDiscoveredEvent>('peer_discovered', (event) => {
-        setPeers((prev) => {
-          // Check if peer already exists
-          if (prev.some((p) => p.ip === event.peer.ip)) {
-            return prev
-          }
-          return [...prev, event.peer as any]
-        })
+        const peerDto = {
+          ...event.peer,
+          displayName: event.peer.display_name,
+          lastSeen: event.peer.last_seen,
+        }
+        const peer = toFrontendPeer(peerDto as any)
+        addPeer(peer)
       })
     )
 
     // Listen for peer status changes
     subscriptions.push(
       onEvent<PeerStatusChangedEvent>('peer_status_changed', (event) => {
-        setPeers((prev) =>
-          prev.map((peer) =>
-            peer.ip === event.peer_ip
-              ? { ...peer, status: event.new_status as any }
-              : peer
-          )
-        )
+        updatePeer(event.peer_ip, { status: event.new_status as any })
       })
     )
 
     // Listen for lost peers
     subscriptions.push(
       onEvent<PeerLostEvent>('peer_lost', (event) => {
-        setPeers((prev) =>
-          prev.map((peer) =>
-            peer.ip === event.peer_ip
-              ? { ...peer, status: 'offline' as any }
-              : peer
-          )
-        )
+        updatePeer(event.peer_ip, { status: 'offline' as any })
       })
     )
 
-    // Start the events manager if not already started
+    // Start events manager if not already started
     eventsManager.start().catch(console.error)
 
     return () => {
       subscriptions.forEach((sub) => sub.remove())
     }
-  }, [subscribeToEvents, enabled])
+  }, [subscribeToEvents, enabled, addPeer, updatePeer])
 
   /**
    * Fetch peers on mount

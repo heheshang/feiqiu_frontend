@@ -59,6 +59,15 @@ pub enum TransferDirection {
     Download,
 }
 
+impl std::fmt::Display for TransferDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransferDirection::Upload => write!(f, "upload"),
+            TransferDirection::Download => write!(f, "download"),
+        }
+    }
+}
+
 /// Transfer status
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TransferStatus {
@@ -76,8 +85,58 @@ pub enum TransferStatus {
     Cancelled,
 }
 
+impl std::fmt::Display for TransferStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransferStatus::Pending => write!(f, "pending"),
+            TransferStatus::Active => write!(f, "active"),
+            TransferStatus::Paused => write!(f, "paused"),
+            TransferStatus::Completed => write!(f, "completed"),
+            TransferStatus::Failed => write!(f, "failed"),
+            TransferStatus::Cancelled => write!(f, "cancelled"),
+        }
+    }
+}
+
 impl TransferTask {
     /// Create a new upload task
+    pub fn new_download(peer_ip: IpAddr, file_name: String, file_size: u64, md5: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            direction: TransferDirection::Download,
+            peer_ip,
+            file_path: PathBuf::new(),
+            file_name,
+            file_size,
+            md5,
+            status: TransferStatus::Pending,
+            transferred_bytes: 0,
+            port: None,
+            created_at: now,
+            updated_at: now,
+            error: None,
+        }
+    }
+
+    pub fn new_pending(request: &crate::modules::file_transfer::response::PendingRequest) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            direction: TransferDirection::Download,
+            peer_ip: request.sender_ip,
+            file_path: PathBuf::new(),
+            file_name: request.file_name.clone(),
+            file_size: request.file_size,
+            md5: request.md5.clone(),
+            status: TransferStatus::Pending,
+            transferred_bytes: 0,
+            port: None,
+            created_at: request.created_at,
+            updated_at: Utc::now(),
+            error: None,
+        }
+    }
+
     pub fn new_upload(
         peer_ip: IpAddr,
         file_path: PathBuf,
@@ -91,26 +150,6 @@ impl TransferTask {
             direction: TransferDirection::Upload,
             peer_ip,
             file_path,
-            file_name,
-            file_size,
-            md5,
-            status: TransferStatus::Pending,
-            transferred_bytes: 0,
-            port: None,
-            created_at: now,
-            updated_at: now,
-            error: None,
-        }
-    }
-
-    /// Create a new download task
-    pub fn new_download(peer_ip: IpAddr, file_name: String, file_size: u64, md5: String) -> Self {
-        let now = Utc::now();
-        Self {
-            id: Uuid::new_v4(),
-            direction: TransferDirection::Download,
-            peer_ip,
-            file_path: PathBuf::new(), // Will be set when accepted
             file_name,
             file_size,
             md5,
@@ -150,6 +189,13 @@ impl TransferTask {
         self.updated_at = Utc::now();
     }
 
+    pub fn is_finished(&self) -> bool {
+        matches!(
+            self.status,
+            TransferStatus::Completed | TransferStatus::Failed | TransferStatus::Cancelled
+        )
+    }
+
     /// Mark as completed
     pub fn mark_completed(&mut self) {
         self.status = TransferStatus::Completed;
@@ -184,14 +230,6 @@ impl TransferTask {
             self.status = TransferStatus::Active;
             self.updated_at = Utc::now();
         }
-    }
-
-    /// Check if transfer is finished (completed, failed, or cancelled)
-    pub fn is_finished(&self) -> bool {
-        matches!(
-            self.status,
-            TransferStatus::Completed | TransferStatus::Failed | TransferStatus::Cancelled
-        )
     }
 
     /// Check if transfer is active (not paused and not finished)

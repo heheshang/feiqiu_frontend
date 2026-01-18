@@ -152,6 +152,31 @@ fn emit_event(app_handle: &tauri::AppHandle, event: &TauriEvent) {
                 app_handle.emit("message-receipt-ack", event),
             )
         }
+        TauriEvent::MessageDelivered { msg_id, .. } => {
+            tracing::info!("📤 [TAURI EMIT] message-delivered: msg_id={}", msg_id);
+            (
+                "message-delivered",
+                app_handle.emit("message-delivered", event),
+            )
+        }
+        TauriEvent::MessageRead { msg_id, .. } => {
+            tracing::info!("📤 [TAURI EMIT] message-read: msg_id={}", msg_id);
+            ("message-read", app_handle.emit("message-read", event))
+        }
+        TauriEvent::MessageDeleted { msg_id, .. } => {
+            tracing::info!("📤 [TAURI EMIT] message-deleted: msg_id={}", msg_id);
+            ("message-deleted", app_handle.emit("message-deleted", event))
+        }
+        TauriEvent::FileTransferRejected { request_id, .. } => {
+            tracing::info!(
+                "📤 [TAURI EMIT] file-transfer-rejected: request_id={}",
+                request_id
+            );
+            (
+                "file-transfer-rejected",
+                app_handle.emit("file-transfer-rejected", event),
+            )
+        }
     };
 
     if let Err(e) = result {
@@ -286,11 +311,14 @@ fn start_message_router(
 
     thread::spawn(move || {
         tracing::info!("Message router task started");
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         for route_request in message_route_rx {
             let sender_ip = route_request.sender.ip();
-            if let Err(e) =
-                app_state.handle_routed_message(&route_request.message, sender_ip, local_ip)
-            {
+            if let Err(e) = rt.block_on(async {
+                app_state
+                    .handle_routed_message(&route_request.message, sender_ip, local_ip)
+                    .await
+            }) {
                 tracing::error!("Failed to handle incoming message: {:?}", e);
             }
         }
@@ -316,11 +344,15 @@ fn init_peer_manager(
         discovery.user_id()
     );
 
-    // Get peer repository from app state
-    let peer_repo = app_state.get_peer_repo().expect(
-        "Peer repository must be initialized before PeerManager. \
-         Ensure init_database() is called first.",
-    );
+    let peer_repo = match app_state.get_peer_repo() {
+        Some(repo) => repo,
+        None => {
+            tracing::error!(
+                "Peer repository not initialized. Ensure init_database() is called before init_peer_manager."
+            );
+            return;
+        }
+    };
 
     let peer_manager = PeerManager::new(discovery, peer_repo);
     peer_manager.set_message_handler_channel(message_route_tx);

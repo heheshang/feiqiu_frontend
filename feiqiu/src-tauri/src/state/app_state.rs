@@ -3,6 +3,7 @@
 // Provides a centralized state management structure for the Tauri application.
 
 use crate::config::{app::ConfigRepository, AppConfig};
+use crate::modules::file_transfer::FileTransferManager;
 use crate::modules::message::MessageHandler;
 use crate::modules::peer::{PeerManager, PeerNode};
 use crate::storage::contact_repo::ContactRepository;
@@ -80,6 +81,19 @@ pub enum TauriEvent {
         created_at: i64,
     },
 
+    /// File transfer request rejected by user
+    #[serde(rename = "FileTransferRejected")]
+    FileTransferRejected {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "senderIp")]
+        sender_ip: String,
+        #[serde(rename = "senderName")]
+        sender_name: String,
+        #[serde(rename = "fileName")]
+        file_name: String,
+    },
+
     /// Message receipt acknowledgment received
     #[serde(rename = "MessageReceiptAck")]
     MessageReceiptAck {
@@ -98,6 +112,33 @@ pub enum TauriEvent {
     PeersDiscovered {
         #[serde(rename = "peers")]
         peers: Vec<PeerDiscoveredDto>,
+    },
+
+    /// Message delivered to peer
+    #[serde(rename = "MessageDelivered")]
+    MessageDelivered {
+        #[serde(rename = "msgId")]
+        msg_id: String,
+        #[serde(rename = "deliveredAt")]
+        delivered_at: i64,
+    },
+
+    /// Message read by peer
+    #[serde(rename = "MessageRead")]
+    MessageRead {
+        #[serde(rename = "msgId")]
+        msg_id: String,
+        #[serde(rename = "readAt")]
+        read_at: i64,
+    },
+
+    /// Message deleted
+    #[serde(rename = "MessageDeleted")]
+    MessageDeleted {
+        #[serde(rename = "msgId")]
+        msg_id: String,
+        #[serde(rename = "deletedAt")]
+        deleted_at: i64,
     },
 }
 
@@ -174,6 +215,9 @@ pub struct AppState {
     /// Message handler (when initialized)
     message_handler: Arc<Mutex<Option<MessageHandler>>>,
 
+    /// File transfer manager (when initialized)
+    file_transfer_manager: Arc<Mutex<Option<FileTransferManager>>>,
+
     /// Current application configuration
     config: Arc<Mutex<AppConfig>>,
 
@@ -195,10 +239,25 @@ impl AppState {
             config_repo: Arc::new(Mutex::new(None)),
             peer_manager: Arc::new(Mutex::new(None)),
             message_handler: Arc::new(Mutex::new(None)),
+            file_transfer_manager: Arc::new(Mutex::new(None)),
             config: Arc::new(Mutex::new(config)),
             event_emitter: Arc::new(Mutex::new(super::events::AppEventEmitter::new())),
             tauri_event_sender: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn safe_lock<T>(mutex: &Arc<Mutex<T>>) -> Option<std::sync::MutexGuard<T>> {
+        mutex.lock().ok()
+    }
+
+    fn safe_lock_warn<'a, T>(
+        mutex: &'a Arc<Mutex<T>>,
+        _context: &str,
+    ) -> Option<std::sync::MutexGuard<'a, T>> {
+        mutex.lock().ok().or_else(|| {
+            tracing::warn!("Mutex is poisoned: {}", _context);
+            None
+        })
     }
 
     // ==================== Database Methods ====================
@@ -213,19 +272,30 @@ impl AppState {
     pub fn set_database(&self, db: &DatabaseConnection) {
         tracing::info!("Setting database connection in AppState...");
 
-        // Store the database connection
-        *self.db.lock().unwrap() = Some(db.clone());
+        if let Some(mut db_guard) = Self::safe_lock(&self.db) {
+            *db_guard = Some(db.clone());
+        } else {
+            tracing::error!("Failed to acquire db lock");
+            return;
+        }
 
-        // Create repositories
         let message_repo = MessageRepository::new(db.clone());
         let peer_repo = PeerRepository::new(db.clone());
         let contact_repo = ContactRepository::new(db.clone());
         let config_repo = ConfigRepository::new(db.clone());
 
-        *self.message_repo.lock().unwrap() = Some(message_repo);
-        *self.peer_repo.lock().unwrap() = Some(peer_repo);
-        *self.contact_repo.lock().unwrap() = Some(contact_repo);
-        *self.config_repo.lock().unwrap() = Some(config_repo);
+        if let Some(mut guard) = Self::safe_lock(&self.message_repo) {
+            *guard = Some(message_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.peer_repo) {
+            *guard = Some(peer_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.contact_repo) {
+            *guard = Some(contact_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.config_repo) {
+            *guard = Some(config_repo);
+        }
 
         tracing::info!("Database repositories initialized successfully");
     }
@@ -241,19 +311,31 @@ impl AppState {
             crate::NeoLanError::Storage(format!("Database connection failed: {}", e))
         })?;
 
-        // Store the database connection
-        *self.db.lock().unwrap() = Some(db.clone());
+        if let Some(mut db_guard) = Self::safe_lock(&self.db) {
+            *db_guard = Some(db.clone());
+        } else {
+            return Err(crate::NeoLanError::Storage(
+                "Failed to acquire db lock".to_string(),
+            ));
+        }
 
-        // Create repositories
         let message_repo = MessageRepository::new(db.clone());
         let peer_repo = PeerRepository::new(db.clone());
         let contact_repo = ContactRepository::new(db.clone());
         let config_repo = ConfigRepository::new(db.clone());
 
-        *self.message_repo.lock().unwrap() = Some(message_repo);
-        *self.peer_repo.lock().unwrap() = Some(peer_repo);
-        *self.contact_repo.lock().unwrap() = Some(contact_repo);
-        *self.config_repo.lock().unwrap() = Some(config_repo);
+        if let Some(mut guard) = Self::safe_lock(&self.message_repo) {
+            *guard = Some(message_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.peer_repo) {
+            *guard = Some(peer_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.contact_repo) {
+            *guard = Some(contact_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.config_repo) {
+            *guard = Some(config_repo);
+        }
 
         tracing::info!("Database initialized successfully");
 
@@ -264,7 +346,7 @@ impl AppState {
     ///
     /// Returns None if database hasn't been initialized.
     pub fn get_message_repo(&self) -> Option<MessageRepository> {
-        self.message_repo.lock().unwrap().as_ref().cloned()
+        Self::safe_lock(&self.message_repo).and_then(|guard| guard.as_ref().cloned())
     }
 
     /// Get the peer repository
@@ -272,46 +354,45 @@ impl AppState {
     /// Returns None if database hasn't been initialized.
     /// Returns Arc<PeerRepository> for efficient cloning.
     pub fn get_peer_repo(&self) -> Option<Arc<PeerRepository>> {
-        // We need to create a new Arc from the cloned repository
-        // Since PeerRepository is Clone, we can clone it and wrap in Arc
-        self.peer_repo
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|repo| Arc::new(repo.clone()))
+        Self::safe_lock(&self.peer_repo)
+            .and_then(|guard| guard.as_ref().map(|repo| Arc::new(repo.clone())))
     }
 
     /// Get the contact repository
     ///
     /// Returns None if database hasn't been initialized.
     pub fn get_contact_repo(&self) -> Option<ContactRepository> {
-        self.contact_repo.lock().unwrap().as_ref().cloned()
+        Self::safe_lock(&self.contact_repo).and_then(|guard| guard.as_ref().cloned())
     }
 
     /// Get the config repository
     ///
     /// Returns None if database hasn't been initialized.
     pub fn get_config_repo(&self) -> Option<ConfigRepository> {
-        self.config_repo.lock().unwrap().as_ref().cloned()
+        Self::safe_lock(&self.config_repo).and_then(|guard| guard.as_ref().cloned())
     }
 
     /// Check if database is initialized
     pub fn is_database_initialized(&self) -> bool {
-        self.db.lock().unwrap().is_some()
+        Self::safe_lock(&self.db).map_or(false, |guard| guard.is_some())
     }
 
     /// Set the Tauri event sender
     ///
     /// This should be called once during application startup after creating the channel.
     pub fn set_event_sender(&self, sender: mpsc::Sender<TauriEvent>) {
-        *self.tauri_event_sender.lock().unwrap() = Some(sender);
+        if let Some(mut guard) = Self::safe_lock(&self.tauri_event_sender) {
+            *guard = Some(sender);
+        }
     }
 
     /// Emit a Tauri event to the frontend
     ///
     /// This method sends an event through the channel to be forwarded to the main thread.
     pub fn emit_tauri_event(&self, event: TauriEvent) {
-        if let Some(sender) = self.tauri_event_sender.lock().unwrap().as_ref() {
+        if let Some(sender) =
+            Self::safe_lock(&self.tauri_event_sender).and_then(|guard| guard.as_ref().cloned())
+        {
             let _ = sender.send(event);
         }
     }
@@ -320,7 +401,7 @@ impl AppState {
     ///
     /// Returns a cloned reference to the peer manager for direct access.
     pub fn get_peer_manager(&self) -> Option<PeerManager> {
-        self.peer_manager.lock().unwrap().as_ref().cloned()
+        Self::safe_lock(&self.peer_manager).and_then(|guard| guard.as_ref().cloned())
     }
 
     /// Start peer manager
@@ -338,7 +419,12 @@ impl AppState {
 
     /// Get the current configuration
     pub fn get_config(&self) -> AppConfig {
-        self.config.lock().unwrap().clone()
+        Self::safe_lock(&self.config)
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to acquire config lock, returning default");
+                AppConfig::default()
+            })
     }
 
     /// Set the configuration
@@ -347,8 +433,9 @@ impl AppState {
     pub fn set_config(&self, config: AppConfig) {
         self.persist_config_async(&config);
 
-        // Update in-memory config
-        *self.config.lock().unwrap() = config;
+        if let Some(mut guard) = Self::safe_lock(&self.config) {
+            *guard = config;
+        }
         self.emit_event(super::events::AppEvent::ConfigChanged);
     }
 
@@ -359,10 +446,14 @@ impl AppState {
     where
         F: FnOnce(&mut AppConfig),
     {
-        let mut config = self.config.lock().unwrap();
-        updater(&mut config);
-        let config_clone = config.clone();
-        drop(config);
+        let config_clone = if let Some(mut config) = Self::safe_lock(&self.config) {
+            updater(&mut config);
+            config.clone()
+        } else {
+            return Err(crate::NeoLanError::Other(
+                "Failed to acquire config lock".to_string(),
+            ));
+        };
 
         self.persist_config_async(&config_clone);
         self.emit_event(super::events::AppEvent::ConfigChanged);
@@ -377,13 +468,17 @@ impl AppState {
         if let Some(repo) = self.get_config_repo() {
             let config_clone = config.clone();
             std::thread::spawn(move || {
-                // Create a new runtime for this thread
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async move {
-                    if let Err(e) = repo.save_app_config(&config_clone).await {
-                        tracing::error!("Failed to save config: {}", e);
-                    }
+                let rt = tokio::runtime::Runtime::new().map_err(|e| {
+                    tracing::error!("Failed to create tokio runtime: {}", e);
+                    e
                 });
+                if let Ok(rt) = rt {
+                    rt.block_on(async move {
+                        if let Err(e) = repo.save_app_config(&config_clone).await {
+                            tracing::error!("Failed to save config: {}", e);
+                        }
+                    });
+                }
             });
         }
     }
@@ -392,9 +487,31 @@ impl AppState {
     ///
     /// This should be called once during application startup.
     pub fn init_peer_manager(&self, peer_manager: PeerManager) {
-        let mut pm = self.peer_manager.lock().unwrap();
-        *pm = Some(peer_manager);
-        self.emit_event(super::events::AppEvent::Initialized);
+        if let Some(mut pm) = Self::safe_lock(&self.peer_manager) {
+            *pm = Some(peer_manager);
+            self.emit_event(super::events::AppEvent::Initialized);
+        } else {
+            tracing::error!("Failed to acquire peer manager lock");
+        }
+    }
+
+    /// Initialize the file transfer manager
+    ///
+    /// This should be called once during application startup.
+    pub fn init_file_transfer_manager(&self, file_transfer_manager: FileTransferManager) {
+        if let Some(mut ftm) = Self::safe_lock(&self.file_transfer_manager) {
+            *ftm = Some(file_transfer_manager);
+            tracing::info!("File transfer manager initialized");
+        } else {
+            tracing::error!("Failed to acquire file transfer manager lock");
+        }
+    }
+
+    /// Get the file transfer manager
+    ///
+    /// Returns None if not initialized.
+    pub fn get_file_transfer_manager(&self) -> Option<FileTransferManager> {
+        Self::safe_lock(&self.file_transfer_manager).and_then(|guard| guard.as_ref().cloned())
     }
 
     /// Initialize configuration from database
@@ -406,12 +523,15 @@ impl AppState {
             tracing::info!("Loading configuration from database...");
             match repo.load_app_config().await {
                 Ok(config) => {
-                    *self.config.lock().unwrap() = config;
-                    tracing::info!("Configuration loaded successfully");
+                    if let Some(mut guard) = Self::safe_lock(&self.config) {
+                        *guard = config;
+                        tracing::info!("Configuration loaded successfully");
+                    } else {
+                        tracing::error!("Failed to acquire config lock to set loaded config");
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("Failed to load config from DB: {}, using defaults", e);
-                    // Use the default config that was already set in `new()`
                 }
             }
         } else {
@@ -422,48 +542,43 @@ impl AppState {
 
     /// Get peer list (all peers)
     pub fn get_peers(&self) -> Vec<PeerNode> {
-        if let Some(manager) = self.peer_manager.lock().unwrap().as_ref() {
-            manager.get_all_peers()
-        } else {
-            Vec::new()
-        }
+        Self::safe_lock(&self.peer_manager)
+            .and_then(|guard| guard.as_ref().map(|manager| manager.get_all_peers()))
+            .unwrap_or_default()
     }
 
     /// Get online peers
     pub fn get_online_peers(&self) -> Vec<PeerNode> {
-        if let Some(manager) = self.peer_manager.lock().unwrap().as_ref() {
-            manager.get_online_peers()
-        } else {
-            Vec::new()
-        }
+        Self::safe_lock(&self.peer_manager)
+            .and_then(|guard| guard.as_ref().map(|manager| manager.get_online_peers()))
+            .unwrap_or_default()
     }
 
     /// Get peer by IP
     pub fn get_peer(&self, ip: std::net::IpAddr) -> Option<PeerNode> {
-        if let Some(manager) = self.peer_manager.lock().unwrap().as_ref() {
-            manager.get_peer(ip)
-        } else {
-            None
-        }
+        Self::safe_lock(&self.peer_manager)
+            .and_then(|guard| guard.as_ref().and_then(|manager| manager.get_peer(ip)))
     }
 
     /// Get peer statistics
     pub fn get_peer_stats(&self) -> PeerStats {
-        if let Some(manager) = self.peer_manager.lock().unwrap().as_ref() {
-            let all = manager.get_all_peers();
-            let online_count = all.iter().filter(|p| p.is_online()).count();
-            PeerStats {
-                total: all.len(),
-                online: online_count,
-                offline: all.len() - online_count,
-            }
-        } else {
-            PeerStats {
+        Self::safe_lock(&self.peer_manager)
+            .and_then(|guard| {
+                guard.as_ref().map(|manager| {
+                    let all = manager.get_all_peers();
+                    let online_count = all.iter().filter(|p| p.is_online()).count();
+                    PeerStats {
+                        total: all.len(),
+                        online: online_count,
+                        offline: all.len() - online_count,
+                    }
+                })
+            })
+            .unwrap_or(PeerStats {
                 total: 0,
                 online: 0,
                 offline: 0,
-            }
-        }
+            })
     }
 
     /// Emit an event
@@ -488,8 +603,11 @@ impl AppState {
     ///
     /// This should be called once during application startup.
     pub fn init_message_handler(&self, message_handler: MessageHandler) {
-        let mut mh = self.message_handler.lock().unwrap();
-        *mh = Some(message_handler);
+        if let Some(mut mh) = Self::safe_lock(&self.message_handler) {
+            *mh = Some(message_handler);
+        } else {
+            tracing::error!("Failed to acquire message handler lock");
+        }
     }
 
     /// Send a text message to a peer
@@ -502,18 +620,15 @@ impl AppState {
     /// * `Ok(msg_id)` - Message sent successfully, returns message ID
     /// * `Err(NeoLanError)` - Send failed
     pub fn send_message(&self, target_ip: std::net::IpAddr, content: &str) -> Result<String> {
-        if let Some(handler) = self.message_handler.lock().unwrap().as_ref() {
-            handler.send_text_message(target_ip, content)?;
-
-            // Get the packet ID that was used
-            let msg_id = handler.packet_id_counter().to_string();
-
-            Ok(msg_id)
-        } else {
-            Err(crate::NeoLanError::Other(
-                "Message handler not initialized".to_string(),
-            ))
+        if let Some(guard) = Self::safe_lock(&self.message_handler) {
+            if let Some(handler) = guard.as_ref() {
+                handler.send_text_message(target_ip, content)?;
+                return Ok(handler.packet_id_counter().to_string());
+            }
         }
+        Err(crate::NeoLanError::Other(
+            "Message handler not initialized".to_string(),
+        ))
     }
 
     /// Handle a routed message from PeerManager
@@ -526,19 +641,22 @@ impl AppState {
     /// # Returns
     /// * `Ok(())` - Message processed successfully
     /// * `Err(NeoLanError)` - Processing failed
-    pub fn handle_routed_message(
+    pub async fn handle_routed_message(
         &self,
         proto_msg: &crate::network::ProtocolMessage,
         sender_ip: std::net::IpAddr,
         local_ip: std::net::IpAddr,
     ) -> Result<()> {
-        if let Some(handler) = self.message_handler.lock().unwrap().as_ref() {
-            handler.handle_incoming_message(proto_msg, sender_ip, local_ip)
-        } else {
-            Err(crate::NeoLanError::Other(
-                "Message handler not initialized".to_string(),
-            ))
+        if let Some(guard) = Self::safe_lock(&self.message_handler) {
+            if let Some(handler) = guard.as_ref() {
+                return handler
+                    .handle_incoming_message(proto_msg, sender_ip, local_ip)
+                    .await;
+            }
         }
+        Err(crate::NeoLanError::Other(
+            "Message handler not initialized".to_string(),
+        ))
     }
 }
 

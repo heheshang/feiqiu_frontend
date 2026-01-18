@@ -1,15 +1,17 @@
 /**
  * useMessages Hook
  *
- * Custom hook for fetching and managing message data from the backend.
+ * Custom hook for fetching and managing message data from backend.
  * Provides real-time updates when new messages are received or sent.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { messagesApi } from '@/lib/api'
 import { eventsManager, onEvent } from '@/lib/events'
+import { toFrontendMessage } from '@/lib/converters'
 import type { Message } from '@/lib/converters'
 import type { MessageReceivedEvent, MessageSentEvent } from '@/lib/events'
+import { useMessagesStore } from '@/stores/messagesStore'
 
 /**
  * Hook return value
@@ -86,9 +88,15 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
     subscribeToEvents = true,
   } = options
 
-  const [messages, setMessages] = useState<Message[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const messages = useMessagesStore((state) => state.messages)
+  const isLoading = useMessagesStore((state) => state.isLoading)
+  const error = useMessagesStore((state) => state.error)
+
+  const setMessages = useMessagesStore((state) => state.setMessages)
+  const setMessagesLoading = useMessagesStore((state) => state.setMessagesLoading)
+  const setMessagesError = useMessagesStore((state) => state.setMessagesError)
+  const addMessage = useMessagesStore((state) => state.addMessage)
+  const updateMessage = useMessagesStore((state) => state.updateMessage)
 
   // Use ref to track if component is mounted
   const isMountedRef = useRef(true)
@@ -102,8 +110,8 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
       return
     }
 
-    setIsLoading(true)
-    setError(null)
+    setMessagesLoading(true)
+    setMessagesError(null)
 
     try {
       const messagesData = await messagesApi.getMessages(filters)
@@ -113,15 +121,16 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
       }
     } catch (err) {
       if (isMountedRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)))
+        const error = err instanceof Error ? err : new Error(String(err))
+        setMessagesError(error)
         console.error('[useMessages] Failed to fetch messages:', err)
       }
     } finally {
       if (isMountedRef.current) {
-        setIsLoading(false)
+        setMessagesLoading(false)
       }
     }
-  }, [enabled, filters])
+  }, [enabled, filters, setMessagesLoading, setMessagesError, setMessages])
 
   /**
    * Manually refresh messages
@@ -140,18 +149,18 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
     try {
       const message = await messagesApi.sendMessage(content, receiverIp)
 
-      // Add the new message to the list optimistically
+      // Add new message to list optimistically
       if (isMountedRef.current) {
-        setMessages((prev) => [...prev, message])
+        addMessage(message)
       }
 
       return message
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setMessagesError(error)
       throw error
     }
-  }, [])
+  }, [addMessage, setMessagesError])
 
   /**
    * Get messages for a specific peer
@@ -163,7 +172,7 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
     try {
       const peerMessages = await messagesApi.getMessagesByPeer(peerIp, limit)
 
-      // Update the messages list if the filter matches
+      // Update messages list if filter matches
       if (filters?.senderIp === peerIp && isMountedRef.current) {
         setMessages(peerMessages)
       }
@@ -171,10 +180,10 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
       return peerMessages
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setMessagesError(error)
       throw error
     }
-  }, [filters?.senderIp])
+  }, [filters?.senderIp, setMessages, setMessagesError])
 
   /**
    * Setup event listeners for real-time updates
@@ -189,9 +198,10 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
     // Listen for new messages
     subscriptions.push(
       onEvent<MessageReceivedEvent>('message_received', (event) => {
-        const newMessage = event.message as any
+        const messageDto = event.message as any
+        const newMessage = toFrontendMessage(messageDto)
 
-        // Check if the message matches our filters
+        // Check if message matches our filters
         if (filters?.senderIp && newMessage.senderIp !== filters.senderIp) {
           return
         }
@@ -199,7 +209,7 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
           return
         }
 
-        setMessages((prev) => [...prev, newMessage])
+        addMessage(newMessage)
       })
     )
 
@@ -207,23 +217,17 @@ export function useMessages(options: UseMessagesOptions = {}): UseMessagesResult
     subscriptions.push(
       onEvent<MessageSentEvent>('message_sent', (event) => {
         // Update message status if it's in our list
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.msgId === event.message_id
-              ? { ...msg, status: event.status as any }
-              : msg
-          )
-        )
+        updateMessage(event.message_id, { status: event.status as any })
       })
     )
 
-    // Start the events manager if not already started
+    // Start events manager if not already started
     eventsManager.start().catch(console.error)
 
     return () => {
       subscriptions.forEach((sub) => sub.remove())
     }
-  }, [subscribeToEvents, enabled, filters])
+  }, [subscribeToEvents, enabled, filters, addMessage, updateMessage])
 
   /**
    * Fetch messages on mount

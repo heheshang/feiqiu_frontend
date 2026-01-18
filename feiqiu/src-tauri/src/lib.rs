@@ -107,5 +107,9 @@ pub fn run() {
             get_contact_stats,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .map_err(|e| {
+            tracing::error!("Failed to run Tauri application: {}", e);
+            e
+        })
+        .ok();
 }

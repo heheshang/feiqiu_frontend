@@ -282,4 +282,40 @@ impl MessageRepository {
 
         Ok(count)
     }
+
+    pub async fn mark_as_read(&self, msg_id: &str) -> Result<()> {
+        let existing = self
+            .find_by_msg_id(msg_id)
+            .await?
+            .ok_or_else(|| NeoLanError::Storage(format!("Message not found: {}", msg_id)))?;
+
+        let mut active_model: MessageActiveModel = existing.into();
+        active_model.received_at = Set(Some(chrono::Utc::now().naive_utc()));
+
+        MessageEntity::update(active_model)
+            .exec(&self.db)
+            .await
+            .map_err(|e| NeoLanError::Storage(format!("Failed to mark message as read: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn mark_as_deleted(&self, msg_id: &str) -> Result<()> {
+        let result = MessageEntity::delete_many()
+            .filter(messages::Column::MsgId.eq(msg_id))
+            .exec(&self.db)
+            .await
+            .map_err(|e| {
+                NeoLanError::Storage(format!("Failed to mark message as deleted: {}", e))
+            })?;
+
+        if result.rows_affected == 0 {
+            Err(NeoLanError::Storage(format!(
+                "Message not found: {}",
+                msg_id
+            )))
+        } else {
+            Ok(())
+        }
+    }
 }

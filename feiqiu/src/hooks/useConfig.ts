@@ -1,15 +1,17 @@
 /**
  * useConfig Hook
  *
- * Custom hook for fetching and managing application configuration from the backend.
+ * Custom hook for fetching and managing application configuration from backend.
  * Provides real-time updates when configuration changes.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { configApi } from '@/lib/api'
 import { eventsManager, onEvent } from '@/lib/events'
+import { toFrontendConfig } from '@/lib/converters'
 import type { Config } from '@/lib/converters'
 import type { ConfigChangedEvent } from '@/lib/events'
+import { useConfigStore } from '@/stores/configStore'
 
 /**
  * Hook return value
@@ -77,9 +79,14 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
     subscribeToEvents = true,
   } = options
 
-  const [config, setConfig] = useState<Config | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<Error | null>(null)
+  const config = useConfigStore((state) => state.config)
+  const isLoading = useConfigStore((state) => state.isLoading)
+  const error = useConfigStore((state) => state.error)
+
+  const setConfig = useConfigStore((state) => state.setConfig)
+  const setConfigLoading = useConfigStore((state) => state.setConfigLoading)
+  const setConfigError = useConfigStore((state) => state.setConfigError)
+  const updateConfigStore = useConfigStore((state) => state.updateConfig)
 
   // Use ref to track if component is mounted
   const isMountedRef = useRef(true)
@@ -92,8 +99,8 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
       return
     }
 
-    setIsLoading(true)
-    setError(null)
+    setConfigLoading(true)
+    setConfigError(null)
 
     try {
       const configData = await configApi.getConfig()
@@ -103,15 +110,16 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
       }
     } catch (err) {
       if (isMountedRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)))
+        const error = err instanceof Error ? err : new Error(String(err))
+        setConfigError(error)
         console.error('[useConfig] Failed to fetch config:', err)
       }
     } finally {
       if (isMountedRef.current) {
-        setIsLoading(false)
+        setConfigLoading(false)
       }
     }
-  }, [enabled])
+  }, [enabled, setConfigLoading, setConfigError, setConfig])
 
   /**
    * Manually refresh config
@@ -128,15 +136,14 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
   ): Promise<void> => {
     try {
       await configApi.setConfig(partialConfig)
-
-      // Refetch config to get the updated state
+      updateConfigStore(partialConfig)
       await fetchConfig()
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setConfigError(error)
       throw error
     }
-  }, [fetchConfig])
+  }, [updateConfigStore, fetchConfig, setConfigError])
 
   /**
    * Reset configuration to defaults
@@ -145,7 +152,6 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
     try {
       const defaultConfig = await configApi.resetConfig()
 
-      // Update local state
       if (isMountedRef.current) {
         setConfig(defaultConfig)
       }
@@ -153,10 +159,10 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
       return defaultConfig
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setConfigError(error)
       throw error
     }
-  }, [])
+  }, [setConfig, setConfigError])
 
   /**
    * Get a single config value
@@ -166,10 +172,10 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
       return await configApi.getConfigValue<T>(key)
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setConfigError(error)
       throw error
     }
-  }, [])
+  }, [setConfigError])
 
   /**
    * Set a single config value
@@ -177,15 +183,13 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
   const setConfigValue = useCallback(async (key: string, value: any): Promise<void> => {
     try {
       await configApi.setConfigValue(key, value)
-
-      // Refresh config to get updated values
       await fetchConfig()
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      setError(error)
+      setConfigError(error)
       throw error
     }
-  }, [fetchConfig])
+  }, [fetchConfig, setConfigError])
 
   /**
    * Setup event listeners for real-time updates
@@ -200,26 +204,19 @@ export function useConfig(options: UseConfigOptions = {}): UseConfigResult {
     // Listen for config changes
     subscriptions.push(
       onEvent<ConfigChangedEvent>('config_changed', (event) => {
-        setConfig((prev) => {
-          if (!prev) {
-            return event.config as any
-          }
-          // Merge the changed fields with existing config
-          return {
-            ...prev,
-            ...(event.config as any),
-          }
-        })
+        const configDto = event.config as any
+        const newConfig = toFrontendConfig(configDto)
+        setConfig(newConfig)
       })
     )
 
-    // Start the events manager if not already started
+    // Start events manager if not already started
     eventsManager.start().catch(console.error)
 
     return () => {
       subscriptions.forEach((sub) => sub.remove())
     }
-  }, [subscribeToEvents, enabled])
+  }, [subscribeToEvents, enabled, setConfig])
 
   /**
    * Fetch config on mount
