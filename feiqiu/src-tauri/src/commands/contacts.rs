@@ -7,7 +7,7 @@ use crate::state::AppState;
 use crate::storage::contact_repo::{
     ContactFilters, CreateContact, CreateGroup, UpdateContact, UpdateGroup,
 };
-use crate::NeoLanError;
+use crate::{NeoLanError, Result};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -115,31 +115,26 @@ impl From<ContactFiltersDto> for ContactFilters {
 pub async fn get_contacts(
     state: State<'_, AppState>,
     filters: Option<ContactFiltersDto>,
-) -> std::result::Result<Vec<ContactDto>, String> {
+) -> Result<Vec<ContactDto>> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     let filters = filters.map(|f| f.into());
 
-    let contacts = repo.find_all(filters).await.map_err(|e| e.to_string())?;
+    let contacts = repo.find_all(filters).await?;
 
     Ok(contacts.into_iter().map(ContactDto::from).collect())
 }
 
 /// Get a single contact by ID
 #[tauri::command]
-pub async fn get_contact(
-    state: State<'_, AppState>,
-    id: i32,
-) -> std::result::Result<Option<ContactDto>, String> {
+pub async fn get_contact(state: State<'_, AppState>, id: i32) -> Result<Option<ContactDto>> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
-    let contact = repo.find_by_id(id).await.map_err(|e| e.to_string())?;
+    let contact = repo.find_by_id(id).await?;
 
     Ok(contact.map(ContactDto::from))
 }
@@ -166,11 +161,10 @@ pub struct CreateContactDto {
 pub async fn create_contact(
     state: State<'_, AppState>,
     contact: CreateContactDto,
-) -> std::result::Result<ContactDto, String> {
+) -> Result<ContactDto> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     let new_contact = CreateContact {
         peer_id: contact.peer_id,
@@ -186,7 +180,7 @@ pub async fn create_contact(
         ip_address: contact.ip_address,
     };
 
-    let result = repo.create(new_contact).await.map_err(|e| e.to_string())?;
+    let result = repo.create(new_contact).await?;
 
     Ok(ContactDto::from(result))
 }
@@ -215,11 +209,10 @@ pub async fn update_contact(
     state: State<'_, AppState>,
     id: i32,
     contact: UpdateContactDto,
-) -> std::result::Result<ContactDto, String> {
+) -> Result<ContactDto> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     let update = UpdateContact {
         name: contact.name,
@@ -236,46 +229,36 @@ pub async fn update_contact(
         peer_id: contact.peer_id,
     };
 
-    let result = repo.update(id, update).await.map_err(|e| e.to_string())?;
+    let result = repo.update(id, update).await?;
 
     Ok(ContactDto::from(result))
 }
 
 /// Delete a contact
 #[tauri::command]
-pub async fn delete_contact(
-    state: State<'_, AppState>,
-    id: i32,
-) -> std::result::Result<(), String> {
+pub async fn delete_contact(state: State<'_, AppState>, id: i32) -> Result<()> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
-    repo.delete(id).await.map_err(|e| e.to_string())?;
+    repo.delete(id).await?;
 
     Ok(())
 }
 
 /// Get all contact groups
 #[tauri::command]
-pub async fn get_contact_groups(
-    state: State<'_, AppState>,
-) -> std::result::Result<Vec<ContactGroupDto>, String> {
+pub async fn get_contact_groups(state: State<'_, AppState>) -> Result<Vec<ContactGroupDto>> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
-    let groups = repo.find_all_groups().await.map_err(|e| e.to_string())?;
+    let groups = repo.find_all_groups().await?;
 
     // Get member counts for each group
     let mut result = Vec::new();
     for group in groups {
-        let members = repo
-            .find_contacts_by_group(group.id)
-            .await
-            .map_err(|e| e.to_string())?;
+        let members = repo.find_contacts_by_group(group.id).await?;
         result.push((group, members.len() as i64));
     }
 
@@ -297,11 +280,10 @@ pub struct CreateContactGroupDto {
 pub async fn create_contact_group(
     state: State<'_, AppState>,
     group: CreateContactGroupDto,
-) -> std::result::Result<ContactGroupDto, String> {
+) -> Result<ContactGroupDto> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     let new_group = CreateGroup {
         name: group.name,
@@ -310,10 +292,7 @@ pub async fn create_contact_group(
         sort_order: group.sort_order,
     };
 
-    let result = repo
-        .create_group(new_group)
-        .await
-        .map_err(|e| e.to_string())?;
+    let result = repo.create_group(new_group).await?;
 
     Ok(ContactGroupDto::from((result, 0)))
 }
@@ -334,11 +313,10 @@ pub async fn update_contact_group(
     state: State<'_, AppState>,
     id: i32,
     group: UpdateContactGroupDto,
-) -> std::result::Result<ContactGroupDto, String> {
+) -> Result<ContactGroupDto> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     let update = UpdateGroup {
         name: group.name,
@@ -347,32 +325,22 @@ pub async fn update_contact_group(
         sort_order: group.sort_order,
     };
 
-    let result = repo
-        .update_group(id, update)
-        .await
-        .map_err(|e| e.to_string())?;
+    let result = repo.update_group(id, update).await?;
 
     // Get member count
-    let members = repo
-        .find_contacts_by_group(result.id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let members = repo.find_contacts_by_group(result.id).await?;
 
     Ok(ContactGroupDto::from((result, members.len() as i64)))
 }
 
 /// Delete a contact group
 #[tauri::command]
-pub async fn delete_contact_group(
-    state: State<'_, AppState>,
-    id: i32,
-) -> std::result::Result<(), String> {
+pub async fn delete_contact_group(state: State<'_, AppState>, id: i32) -> Result<()> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
-    repo.delete_group(id).await.map_err(|e| e.to_string())?;
+    repo.delete_group(id).await?;
 
     Ok(())
 }
@@ -383,16 +351,13 @@ pub async fn add_contacts_to_group(
     state: State<'_, AppState>,
     group_id: i32,
     contact_ids: Vec<i32>,
-) -> std::result::Result<(), String> {
+) -> Result<()> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     for contact_id in contact_ids {
-        repo.add_to_group(contact_id, group_id)
-            .await
-            .map_err(|e| e.to_string())?;
+        repo.add_to_group(contact_id, group_id).await?;
     }
 
     Ok(())
@@ -404,16 +369,13 @@ pub async fn remove_contacts_from_group(
     state: State<'_, AppState>,
     group_id: i32,
     contact_ids: Vec<i32>,
-) -> std::result::Result<(), String> {
+) -> Result<()> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
     for contact_id in contact_ids {
-        repo.remove_from_group(contact_id, group_id)
-            .await
-            .map_err(|e| e.to_string())?;
+        repo.remove_from_group(contact_id, group_id).await?;
     }
 
     Ok(())
@@ -421,16 +383,12 @@ pub async fn remove_contacts_from_group(
 
 /// Search contacts by query string
 #[tauri::command]
-pub async fn search_contacts(
-    state: State<'_, AppState>,
-    query: String,
-) -> std::result::Result<Vec<ContactDto>, String> {
+pub async fn search_contacts(state: State<'_, AppState>, query: String) -> Result<Vec<ContactDto>> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
-    let contacts = repo.search(&query).await.map_err(|e| e.to_string())?;
+    let contacts = repo.search(&query).await?;
 
     Ok(contacts.into_iter().map(ContactDto::from).collect())
 }
@@ -448,15 +406,12 @@ pub struct ContactStatsDto {
 
 /// Get contact statistics
 #[tauri::command]
-pub async fn get_contact_stats(
-    state: State<'_, AppState>,
-) -> std::result::Result<ContactStatsDto, String> {
+pub async fn get_contact_stats(state: State<'_, AppState>) -> Result<ContactStatsDto> {
     let repo = state
         .get_contact_repo()
-        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))
-        .map_err(|e| e.to_string())?;
+        .ok_or_else(|| NeoLanError::Storage("Contact repository not initialized".to_string()))?;
 
-    let all = repo.find_all(None).await.map_err(|e| e.to_string())?;
+    let all = repo.find_all(None).await?;
     let online = repo
         .find_all(Some(ContactFilters {
             search: None,
@@ -465,8 +420,7 @@ pub async fn get_contact_stats(
             department: None,
             group_id: None,
         }))
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let favorites = repo
         .find_all(Some(ContactFilters {
             search: None,
@@ -475,8 +429,7 @@ pub async fn get_contact_stats(
             department: None,
             group_id: None,
         }))
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     // Calculate department breakdown
     let mut by_department = std::collections::HashMap::new();

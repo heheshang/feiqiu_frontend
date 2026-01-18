@@ -109,6 +109,38 @@ const MAX_PACKET_ID: u64 = u32::MAX as u64;
 /// Maximum message content size (1MB)
 const MAX_CONTENT_SIZE: usize = 1024 * 1024;
 
+/// Escape delimiter characters in a string for protocol serialization
+///
+/// This prevents content with colons from corrupting the protocol format.
+/// Escaped characters: `:` → `\:` and `\` → `\\`
+fn escape_delimiters(s: &str) -> String {
+    s.replace('\\', "\\\\").replace(':', "\\:")
+}
+
+/// Unescape delimiter escape sequences in a parsed string
+///
+/// Reverses the escaping done by `escape_delimiters`.
+/// Unescapes: `\:` → `:` and `\\` → `\`
+fn unescape_delimiters(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                if next == ':' || next == '\\' {
+                    result.push(next);
+                    chars.next();
+                    continue;
+                }
+            }
+        }
+        result.push(c);
+    }
+
+    result
+}
+
 /// Decode bytes to string with encoding auto-detection
 /// Tries UTF-8 first (standard IPMsg), then GBK (FeiQ compatibility)
 fn decode_message_bytes(data: &[u8]) -> String {
@@ -414,11 +446,13 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
         String::new()
     } else {
         // Standard IPMsg format: content is at fields[5+]
-        if fields.len() > 6 {
+        let raw_content = if fields.len() > 6 {
             fields[5..].join(PROTOCOL_DELIMITER)
         } else {
             fields[5].to_string()
-        }
+        };
+        // Unescape content to restore original text
+        unescape_delimiters(&raw_content)
     };
 
     // Validate content size
@@ -523,10 +557,13 @@ pub fn serialize_message(msg: &ProtocolMessage) -> Result<Vec<u8>> {
         )));
     }
 
+    // Escape content to prevent protocol injection
+    let escaped_content = escape_delimiters(&msg.content);
+
     // Build protocol string
     let protocol_string = format!(
         "{}:{}:{}:{}:{}:{}",
-        msg.version, msg.packet_id, msg.sender_name, msg.sender_host, msg.msg_type, msg.content
+        msg.version, msg.packet_id, msg.sender_name, msg.sender_host, msg.msg_type, escaped_content
     );
 
     // Convert to bytes (UTF-8)
@@ -640,4 +677,80 @@ pub fn serialize_message_for_feiq(
     let feiq_message = format!("{}{}", feiq_header, ipmsg_body);
 
     Ok(feiq_message.into_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_delimiters_basic() {
+        assert_eq!(escape_delimiters("hello"), "hello");
+        assert_eq!(escape_delimiters("hello:world"), "hello\\:world");
+        assert_eq!(escape_delimiters("hello\\world"), "hello\\\\world");
+    }
+
+    #[test]
+    fn test_escape_delimiters_multiple() {
+        assert_eq!(escape_delimiters("a:b:c"), "a\\:b\\:c");
+        assert_eq!(escape_delimiters("a\\b\\c"), "a\\\\b\\\\c");
+        assert_eq!(escape_delimiters("a:b\\c"), "a\\:b\\\\c");
+    }
+
+    #[test]
+    fn test_unescape_delimiters_basic() {
+        assert_eq!(unescape_delimiters("hello"), "hello");
+        assert_eq!(unescape_delimiters("hello\\:world"), "hello:world");
+        assert_eq!(unescape_delimiters("hello\\\\world"), "hello\\world");
+    }
+
+    #[test]
+    fn test_unescape_delimiters_multiple() {
+        assert_eq!(unescape_delimiters("a\\:b\\:c"), "a:b:c");
+        assert_eq!(unescape_delimiters("a\\\\b\\\\c"), "a\\b\\c");
+    }
+
+    #[test]
+    fn test_escape_unescape_roundtrip() {
+        let original = "Hello: World\\ Test";
+        let escaped = escape_delimiters(original);
+        let unescaped = unescape_delimiters(&escaped);
+        assert_eq!(original, unescaped);
+    }
+
+    #[test]
+    fn test_message_with_colons_in_content() {
+        let msg = ProtocolMessage {
+            version: 1,
+            packet_id: 123,
+            user_id: "T0170006".to_string(),
+            sender_name: "Alice".to_string(),
+            sender_host: "alice-pc".to_string(),
+            msg_type: msg_type::IPMSG_SENDMSG,
+            content: "Hello: World".to_string(),
+        };
+
+        let serialized = serialize_message(&msg).unwrap();
+        let parsed = parse_message(&serialized).unwrap();
+
+        assert_eq!(parsed.content, "Hello: World");
+    }
+
+    #[test]
+    fn test_message_with_backslashes_in_content() {
+        let msg = ProtocolMessage {
+            version: 1,
+            packet_id: 123,
+            user_id: "T0170006".to_string(),
+            sender_name: "Alice".to_string(),
+            sender_host: "alice-pc".to_string(),
+            msg_type: msg_type::IPMSG_SENDMSG,
+            content: "Path: C:\\Users\\Test".to_string(),
+        };
+
+        let serialized = serialize_message(&msg).unwrap();
+        let parsed = parse_message(&serialized).unwrap();
+
+        assert_eq!(parsed.content, "Path: C:\\Users\\Test");
+    }
 }

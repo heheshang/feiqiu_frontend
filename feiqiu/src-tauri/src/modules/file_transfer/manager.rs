@@ -7,17 +7,22 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+use super::response::PendingRequest;
 use super::types::{TransferStatus, TransferTask};
 
 /// File transfer manager
 ///
 /// Manages file transfer tasks, including sending requests and tracking transfers.
+#[derive(Clone)]
 pub struct FileTransferManager {
     /// UDP transport for sending requests
     udp: Arc<UdpTransport>,
 
     /// Transfer tasks (indexed by task ID)
     tasks: Arc<Mutex<Vec<TransferTask>>>,
+
+    /// Pending file transfer requests waiting for user confirmation
+    pending_requests: Arc<Mutex<Vec<PendingRequest>>>,
 
     /// Local username
     username: String,
@@ -60,6 +65,7 @@ impl FileTransferManager {
         Self {
             udp,
             tasks: Arc::new(Mutex::new(Vec::new())),
+            pending_requests: Arc::new(Mutex::new(Vec::new())),
             username,
             hostname,
             tcp_port_start,
@@ -89,6 +95,11 @@ impl FileTransferManager {
     /// * `u16` - Number of ports in the configured range
     pub fn get_tcp_port_count(&self) -> u16 {
         self.tcp_port_end - self.tcp_port_start + 1
+    }
+
+    /// Get the UDP transport reference
+    pub fn udp(&self) -> &std::sync::Arc<crate::network::UdpTransport> {
+        &self.udp
     }
 
     /// Send a file transfer request to a peer
@@ -302,6 +313,77 @@ impl FileTransferManager {
     ///
     /// # Returns
     /// * `usize` - Number of tasks removed
+    pub fn add_task(&self, task: TransferTask) -> Result<()> {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| NeoLanError::Other("Failed to lock tasks".to_string()))?;
+
+        tasks.push(task);
+        Ok(())
+    }
+
+    pub fn add_pending_request(&self, request: PendingRequest) -> Result<()> {
+        let mut pending = self
+            .pending_requests
+            .lock()
+            .map_err(|_| NeoLanError::Other("Failed to lock pending requests".to_string()))?;
+
+        let request_id = request.id.clone();
+        pending.push(request);
+        tracing::info!("Added pending file transfer request: {}", request_id);
+        Ok(())
+    }
+
+    pub fn get_pending_request(&self, id: &Uuid) -> Option<PendingRequest> {
+        let pending = self.pending_requests.lock().ok()?;
+
+        pending.iter().find(|r| &r.id == id).cloned()
+    }
+
+    pub fn get_all_pending_requests(&self) -> Vec<PendingRequest> {
+        self.pending_requests
+            .lock()
+            .map(|pending| pending.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn remove_pending_request(&self, id: &Uuid) -> Result<()> {
+        let mut pending = self
+            .pending_requests
+            .lock()
+            .map_err(|_| NeoLanError::Other("Failed to lock pending requests".to_string()))?;
+
+        if let Some(index) = pending.iter().position(|r| &r.id == id) {
+            let removed = pending.remove(index);
+            tracing::info!("Removed pending file transfer request: {}", removed.id);
+            Ok(())
+        } else {
+            Err(NeoLanError::FileTransfer(format!(
+                "Pending request not found: {}",
+                id
+            )))
+        }
+    }
+
+    pub fn get_all_tasks(&self) -> Vec<TransferTask> {
+        let mut all_tasks = Vec::new();
+
+        if let Ok(tasks) = self.tasks.lock() {
+            for task in tasks.iter() {
+                all_tasks.push(task.clone());
+            }
+        }
+
+        all_tasks.extend(
+            self.get_all_pending_requests()
+                .into_iter()
+                .map(|req| TransferTask::new_pending(&req)),
+        );
+
+        all_tasks
+    }
+
     pub fn cleanup_finished_tasks(&self) -> usize {
         if let Ok(mut tasks) = self.tasks.lock() {
             let before = tasks.len();
@@ -314,17 +396,6 @@ impl FileTransferManager {
         } else {
             0
         }
-    }
-
-    /// Add a task to the list
-    pub fn add_task(&self, task: TransferTask) -> Result<()> {
-        let mut tasks = self
-            .tasks
-            .lock()
-            .map_err(|_| NeoLanError::Other("Failed to lock tasks".to_string()))?;
-
-        tasks.push(task);
-        Ok(())
     }
 }
 

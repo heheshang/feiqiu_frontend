@@ -31,7 +31,12 @@ fn test_get_db_path_with_env_override() {
 
 #[test]
 fn test_message_repo_creation() {
-    // Test MessageRepository creation
-    // Note: actual tests require database connection, this is a compile test
-    // Integration tests will be implemented in a later phase
+    use tokio::runtime::Runtime;
+
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let _db_path = feiqiu::storage::database::get_db_path();
+        assert!(_db_path.ends_with("neolan.db"));
+    });
 }

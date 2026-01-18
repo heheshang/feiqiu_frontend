@@ -7,11 +7,57 @@ use crate::{NeoLanError, Result};
 use chrono::Utc;
 use serde_json;
 use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use super::types::TransferTask;
 use super::FileTransferManager;
+
+/// Validate a filename to prevent path traversal attacks
+///
+/// This validates filenames received from network requests.
+/// Returns an error if the filename contains path traversal sequences
+/// or represents an absolute path.
+fn validate_filename(name: &str) -> Result<String> {
+    // Check for path traversal attempts
+    if name.contains("..") {
+        return Err(NeoLanError::FileTransfer(
+            "Invalid filename: path traversal not allowed".to_string(),
+        ));
+    }
+
+    // Check for absolute paths
+    if name.starts_with('/') || name.starts_with('\\') {
+        return Err(NeoLanError::FileTransfer(
+            "Invalid filename: absolute path not allowed".to_string(),
+        ));
+    }
+
+    // Check for drive letters (Windows)
+    if name.len() >= 2 && name.chars().nth(1) == Some(':') {
+        return Err(NeoLanError::FileTransfer(
+            "Invalid filename: drive letter not allowed".to_string(),
+        ));
+    }
+
+    // Extract just the filename component
+    let path = Path::new(name);
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| NeoLanError::FileTransfer("Invalid filename".to_string()))?
+        .to_string_lossy()
+        .to_string();
+
+    // Validate the extracted filename is not empty
+    if file_name.is_empty() {
+        return Err(NeoLanError::FileTransfer(
+            "Invalid filename: empty".to_string(),
+        ));
+    }
+
+    Ok(file_name)
+}
 
 /// Pending file transfer request
 ///
@@ -39,6 +85,31 @@ pub struct PendingRequest {
 
     /// Request timestamp
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl PendingRequest {
+    /// Convert to Tauri event payload for file transfer request
+    pub fn to_event(&self) -> crate::state::app_state::TauriEvent {
+        crate::state::app_state::TauriEvent::FileTransferRequest {
+            request_id: self.id.to_string(),
+            sender_ip: self.sender_ip.to_string(),
+            sender_name: self.sender_name.clone(),
+            file_name: self.file_name.clone(),
+            file_size: self.file_size,
+            md5: self.md5.clone(),
+            created_at: self.created_at.timestamp_millis(),
+        }
+    }
+
+    /// Convert to Tauri event payload for file transfer rejection
+    pub fn to_rejected_event(&self) -> crate::state::app_state::TauriEvent {
+        crate::state::app_state::TauriEvent::FileTransferRejected {
+            request_id: self.id.to_string(),
+            sender_ip: self.sender_ip.to_string(),
+            sender_name: self.sender_name.clone(),
+            file_name: self.file_name.clone(),
+        }
+    }
 }
 
 /// File transfer response handler
@@ -99,9 +170,12 @@ impl FileTransferResponse {
         let file_request: FileSendRequest = serde_json::from_str(&proto_msg.content)
             .map_err(|e| NeoLanError::Protocol(format!("Failed to parse file request: {}", e)))?;
 
+        // Validate filename to prevent path traversal attacks
+        let validated_name = validate_filename(&file_request.name)?;
+
         tracing::info!(
             "File request: name={}, size={}, md5={}",
-            file_request.name,
+            validated_name,
             file_request.size,
             file_request.md5
         );
@@ -111,7 +185,7 @@ impl FileTransferResponse {
             id: Uuid::new_v4(),
             sender_ip,
             sender_name: proto_msg.sender_name.clone(),
-            file_name: file_request.name.clone(),
+            file_name: validated_name,
             file_size: file_request.size,
             md5: file_request.md5.clone(),
             created_at: Utc::now(),
@@ -136,8 +210,9 @@ impl FileTransferResponse {
         request: &PendingRequest,
         accept: bool,
         tcp_port: Option<u16>,
-        udp: &crate::network::UdpTransport,
     ) -> Result<()> {
+        // Use UDP transport from the manager
+        let udp = self.manager.udp();
         // Create response
         let response = FileSendResponse {
             accept,
@@ -311,7 +386,7 @@ mod tests {
         };
 
         // Send accept response
-        let result = handler.send_response(&request, true, Some(8001), &udp);
+        let result = handler.send_response(&request, true, Some(8001));
 
         // May fail if no one is listening, but should not panic
         assert!(result.is_ok() || result.is_err());
@@ -342,7 +417,7 @@ mod tests {
         };
 
         // Send reject response
-        let result = handler.send_response(&request, false, None, &udp);
+        let result = handler.send_response(&request, false, None);
 
         // May fail if no one is listening, but should not panic
         assert!(result.is_ok() || result.is_err());
@@ -430,5 +505,42 @@ mod tests {
         let task = task.unwrap();
         assert_eq!(task.direction, TransferDirection::Download);
         assert_eq!(task.file_name, "test.txt");
+    }
+
+    #[test]
+    fn test_validate_filename_basic() {
+        assert_eq!(validate_filename("test.txt").unwrap(), "test.txt");
+        assert_eq!(validate_filename("document.pdf").unwrap(), "document.pdf");
+    }
+
+    #[test]
+    fn test_validate_filename_rejects_path_traversal() {
+        assert!(validate_filename("../etc/passwd").is_err());
+        assert!(validate_filename("foo/../bar").is_err());
+        assert!(validate_filename("foo\\..\\bar").is_err());
+    }
+
+    #[test]
+    fn test_validate_filename_rejects_absolute_paths() {
+        assert!(validate_filename("/etc/passwd").is_err());
+        assert!(validate_filename("\\Windows\\System32").is_err());
+    }
+
+    #[test]
+    fn test_validate_filename_rejects_drive_letters() {
+        assert!(validate_filename("C:\\Windows\\System32").is_err());
+        assert!(validate_filename("D:\\file.txt").is_err());
+    }
+
+    #[test]
+    fn test_validate_filename_handles_spaces() {
+        assert_eq!(
+            validate_filename("my document.txt").unwrap(),
+            "my document.txt"
+        );
+        assert_eq!(
+            validate_filename("file with  spaces.txt").unwrap(),
+            "file with  spaces.txt"
+        );
     }
 }

@@ -136,9 +136,37 @@ mod tests {
 
     #[test]
     fn test_peer_repo_creation() {
-        // Test PeerRepository creation
-        // Note: Actual tests require database connection, this is just a compilation test
-        // Integration tests will be implemented in subsequent phases
+        let mock = MockPeerRepository::new();
+        let last_seen = chrono::Utc::now().naive_utc();
+
+        let peer = mock
+            .upsert(
+                "192.168.1.100".to_string(),
+                2425,
+                Some("Alice".to_string()),
+                Some("alice-pc".to_string()),
+                last_seen,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(peer.ip, "192.168.1.100");
+        assert_eq!(peer.port, 2425);
+        assert_eq!(peer.username, Some("Alice".to_string()));
+
+        let updated = mock
+            .upsert(
+                "192.168.1.100".to_string(),
+                2426,
+                Some("Alice Updated".to_string()),
+                Some("alice-pc".to_string()),
+                last_seen,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated.port, 2426);
+        assert_eq!(updated.username, Some("Alice Updated".to_string()));
     }
 
     #[tokio::test]

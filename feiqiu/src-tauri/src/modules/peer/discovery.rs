@@ -5,15 +5,59 @@
 // - Listening for peer announcements
 // - Processing incoming discovery messages
 
-use crate::network::protocol::{get_local_mac_address, serialize_message_for_feiq};
-use crate::network::{msg_type, serialize_message, ProtocolMessage, UdpTransport};
+use crate::network::msg_type;
+use crate::network::serialize_message;
+use crate::network::ProtocolMessage;
+use crate::network::UdpTransport;
 use crate::Result;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Default receive buffer size for UDP
 const RECV_BUFFER_SIZE: usize = 65535;
+
+/// Time window for rate limiting
+const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(1);
+
+/// Rate limiter for UDP message reception
+///
+/// Tracks the last seen time for each IP address to prevent DoS attacks.
+#[derive(Clone)]
+struct RateLimiter {
+    /// Maps IP address to last message timestamp
+    last_seen: Arc<Mutex<HashMap<std::net::IpAddr, Instant>>>,
+}
+
+impl RateLimiter {
+    /// Create a new rate limiter
+    fn new() -> Self {
+        Self {
+            last_seen: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Check if a message from the given IP should be allowed
+    ///
+    /// Returns `true` if the message is allowed, `false` if rate limited.
+    fn check_rate(&self, ip: std::net::IpAddr) -> bool {
+        let mut map = self.last_seen.lock().unwrap();
+        let now = Instant::now();
+
+        // Check if this IP has sent a message recently
+        if let Some(last_time) = map.get(&ip) {
+            if now.duration_since(*last_time) < RATE_LIMIT_WINDOW {
+                // Rate limited - already received message within window
+                return false;
+            }
+        }
+
+        map.insert(ip, now);
+        true
+    }
+}
 
 /// Peer discovery service
 ///
@@ -34,6 +78,9 @@ pub struct PeerDiscovery {
 
     /// Packet ID counter (for unique message IDs)
     packet_id: Arc<AtomicU64>,
+
+    /// Rate limiter for incoming messages
+    rate_limiter: RateLimiter,
 }
 
 impl PeerDiscovery {
@@ -56,6 +103,7 @@ impl PeerDiscovery {
             username,
             hostname,
             packet_id: Arc::new(AtomicU64::new(1)),
+            rate_limiter: RateLimiter::new(),
         }
     }
 
@@ -165,6 +213,12 @@ impl PeerDiscovery {
             };
 
             let data = &buffer[..len];
+
+            // Rate limiting check - drop if this IP is sending too fast
+            if !self.rate_limiter.check_rate(sender.ip()) {
+                tracing::trace!("Rate limited message from {}", sender.ip());
+                continue;
+            }
 
             // Parse protocol message
             match crate::network::parse_message(data) {
