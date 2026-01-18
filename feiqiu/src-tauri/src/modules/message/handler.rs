@@ -360,7 +360,8 @@ impl MessageHandler {
             // IPMSG_SENDMSG: 发送消息 (0x00000020)
             msg_type::IPMSG_SENDMSG => {
                 tracing::debug!("📨 [handle_incoming_message] Routing to handle_text_message");
-                self.handle_text_message(proto_msg, sender_ip, local_ip)?;
+                self.handle_text_message(proto_msg, sender_ip, local_ip)
+                    .await?;
             }
 
             // IPMSG_RECVMSG: 接收确认（对方已收到消息） (0x00000040)
@@ -393,7 +394,7 @@ impl MessageHandler {
                     "📢 BR_ENTRY/ANSENTRY from {} - updating peers and contacts",
                     sender_ip
                 );
-                self.handle_peer_online(proto_msg, sender_ip)?;
+                self.handle_peer_online(proto_msg, sender_ip).await?;
             }
 
             // IPMSG_BR_EXIT: 广播下线 (0x00000002)
@@ -402,7 +403,7 @@ impl MessageHandler {
                     "📴 BR_EXIT from {} - updating peers and contacts",
                     sender_ip
                 );
-                self.handle_peer_offline(proto_msg, sender_ip)?;
+                self.handle_peer_offline(proto_msg, sender_ip).await?;
             }
 
             // IPMSG_BR_ABSENCE: 广播缺席状态 (0x00000004)
@@ -512,41 +513,50 @@ impl MessageHandler {
     /// * `proto_msg` - Protocol message
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, sender_name = %proto_msg.sender_name))]
-    fn handle_peer_online(&self, proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
+    async fn handle_peer_online(
+        &self,
+        proto_msg: &ProtocolMessage,
+        sender_ip: IpAddr,
+    ) -> Result<()> {
         // 1. Update peers table via peer_repo using upsert
         if let Some(ref peer_repo) = self.peer_repo {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
+            let peer_repo = Arc::clone(peer_repo);
+            let sender_ip_str = sender_ip.to_string();
+            let udp_port = self.config.udp_port as i32;
+            let user_id = proto_msg.user_id.clone();
+            let sender_name = proto_msg.sender_name.clone();
+            let sender_host = proto_msg.sender_host.clone();
+            let sender_ip_for_log = sender_ip_str.clone();
 
             // Use upsert to handle both insert and update cases properly
             // Returns the created/updated peer with its database ID
-            let peer = rt.block_on(async {
-                peer_repo
-                    .upsert(
-                        sender_ip.to_string(),
-                        self.config.udp_port as i32,
-                        Some(proto_msg.user_id.clone()),
-                        Some(proto_msg.sender_name.clone()),
-                        Some(proto_msg.sender_host.clone()),
-                        chrono::Utc::now().naive_utc(),
-                    )
-                    .await
-            })?;
+            let peer = peer_repo
+                .upsert(
+                    sender_ip_str,
+                    udp_port,
+                    Some(user_id),
+                    Some(sender_name),
+                    Some(sender_host),
+                    chrono::Utc::now().naive_utc(),
+                )
+                .await?;
 
             tracing::info!(
                 "✅ Peer stored in database: {} (id={}) ({})",
-                sender_ip,
+                sender_ip_for_log,
                 peer.id,
                 proto_msg.sender_name
             );
 
             // 2. Sync to contacts table via contact_repo
             if let Some(ref contact_repo) = self.contact_repo {
+                let contact_repo = Arc::clone(contact_repo);
                 let user_id = peer.id;
-                rt.block_on(async { contact_repo.sync_from_peers(vec![peer]).await })?;
+                let sender_ip_for_log2 = sender_ip_for_log.clone();
+                contact_repo.sync_from_peers(vec![peer]).await?;
                 tracing::info!(
                     "✅ Contact synced for peer: {} (user_id={})",
-                    sender_ip,
+                    sender_ip_for_log2,
                     user_id
                 );
             }
@@ -573,15 +583,20 @@ impl MessageHandler {
     /// * `_proto_msg` - Protocol message (unused but kept for consistency)
     /// * `sender_ip` - Sender's IP address
     #[instrument(skip(self, _proto_msg), fields(sender_ip = %sender_ip))]
-    fn handle_peer_offline(&self, _proto_msg: &ProtocolMessage, sender_ip: IpAddr) -> Result<()> {
+    async fn handle_peer_offline(
+        &self,
+        _proto_msg: &ProtocolMessage,
+        sender_ip: IpAddr,
+    ) -> Result<()> {
         if let Some(ref peer_repo) = self.peer_repo {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
+            let peer_repo = Arc::clone(peer_repo);
+            let sender_ip = sender_ip.to_string();
+            let sender_ip_for_log = sender_ip.clone();
 
             // Update last_seen (will mark as offline by timeout)
-            rt.block_on(async { peer_repo.update_last_seen(&sender_ip.to_string()).await })?;
+            peer_repo.update_last_seen(&sender_ip).await?;
 
-            tracing::info!("✅ Peer marked offline in database: {}", sender_ip);
+            tracing::info!("✅ Peer marked offline in database: {}", sender_ip_for_log);
         } else {
             tracing::warn!("⚠️ Peer repository not available - cannot update peer");
         }
@@ -606,7 +621,7 @@ impl MessageHandler {
     /// * `sender_ip` - Sender's IP address
     /// * `local_ip` - Local IP address (receiver)
     #[instrument(skip(self, proto_msg), fields(sender_ip = %sender_ip, sender_name = %proto_msg.sender_name, packet_id = %proto_msg.packet_id))]
-    pub fn handle_text_message(
+    pub async fn handle_text_message(
         &self,
         proto_msg: &ProtocolMessage,
         sender_ip: IpAddr,
@@ -629,12 +644,7 @@ impl MessageHandler {
                 received_at: Some(Utc::now().naive_utc()),
                 created_at: Utc::now().naive_utc(),
             };
-
-            // Store to database (blocking - should be async in production)
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| NeoLanError::Other(format!("Failed to create runtime: {}", e)))?;
-            rt.block_on(async { repo.insert(&message_model).await })?;
-
+            repo.insert(&message_model).await?;
             tracing::debug!(
                 "💾 Message stored to database: msg_id={}",
                 proto_msg.packet_id
@@ -670,7 +680,6 @@ impl MessageHandler {
 
             // Serialize and send
             let bytes = serialize_message(&proto_ack)?;
-
             let target_addr = SocketAddr::new(sender_ip, self.config.udp_port);
             self.udp.send_to(&bytes, target_addr)?;
 

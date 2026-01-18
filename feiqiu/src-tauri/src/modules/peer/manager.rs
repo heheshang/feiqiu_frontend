@@ -131,21 +131,8 @@ impl PeerManager {
     {
         let repo = Arc::clone(&self.peer_repo);
 
-        // Try to use the current runtime first
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                // Use existing runtime
-                handle.block_on(f(repo))
-            }
-            Err(_) => {
-                // No runtime available, create a temporary one
-                debug!("No tokio runtime found, creating temporary runtime for database operation");
-                let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                    crate::NeoLanError::Other(format!("Failed to create tokio runtime: {}", e))
-                })?;
-                rt.block_on(f(repo))
-            }
-        }
+        // Use Tauri's async runtime for blocking operations
+        tauri::async_runtime::block_on(f(repo))
     }
 
     /// Start the peer manager
@@ -387,21 +374,8 @@ impl PeerManager {
     where
         F: std::future::Future<Output = Result<T>>,
     {
-        // Try to use the current runtime first
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                // Use existing runtime
-                handle.block_on(f)
-            }
-            Err(_) => {
-                // No runtime available, create a temporary one
-                debug!("No tokio runtime found, creating temporary runtime for database operation");
-                let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                    crate::NeoLanError::Other(format!("Failed to create tokio runtime: {}", e))
-                })?;
-                rt.block_on(f)
-            }
-        }
+        // Use Tauri's async runtime for blocking operations
+        tauri::async_runtime::block_on(f)
     }
 
     /// Add a peer to the database
