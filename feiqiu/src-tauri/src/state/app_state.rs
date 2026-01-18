@@ -246,18 +246,8 @@ impl AppState {
         }
     }
 
-    fn safe_lock<T>(mutex: &Arc<Mutex<T>>) -> Option<std::sync::MutexGuard<T>> {
+    fn safe_lock<T>(mutex: &Arc<Mutex<T>>) -> Option<std::sync::MutexGuard<'_, T>> {
         mutex.lock().ok()
-    }
-
-    fn safe_lock_warn<'a, T>(
-        mutex: &'a Arc<Mutex<T>>,
-        _context: &str,
-    ) -> Option<std::sync::MutexGuard<'a, T>> {
-        mutex.lock().ok().or_else(|| {
-            tracing::warn!("Mutex is poisoned: {}", _context);
-            None
-        })
     }
 
     // ==================== Database Methods ====================
@@ -374,7 +364,7 @@ impl AppState {
 
     /// Check if database is initialized
     pub fn is_database_initialized(&self) -> bool {
-        Self::safe_lock(&self.db).map_or(false, |guard| guard.is_some())
+        Self::safe_lock(&self.db).is_some_and(|guard| guard.is_some())
     }
 
     /// Set the Tauri event sender
@@ -641,6 +631,7 @@ impl AppState {
     /// # Returns
     /// * `Ok(())` - Message processed successfully
     /// * `Err(NeoLanError)` - Processing failed
+    #[allow(clippy::await_holding_lock)]
     pub async fn handle_routed_message(
         &self,
         proto_msg: &crate::network::ProtocolMessage,

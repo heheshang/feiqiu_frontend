@@ -231,19 +231,19 @@ impl PeerManager {
             msg_type::IPMSG_BR_ENTRY => {
                 debug!("📢 Handling BR_ENTRY (peer online)");
                 Self::handle_online_msg(peer_repo, &msg, sender)?;
-                Self::route_message(&message_tx, msg, sender, "text message");
+                Self::route_message(message_tx, msg, sender, "text message");
             }
             // IPMSG_BR_EXIT: Peer is going offline
             msg_type::IPMSG_BR_EXIT => {
                 debug!("📴 Handling BR_EXIT (peer offline)");
                 Self::handle_offline_msg(ip)?;
-                Self::route_message(&message_tx, msg, sender, "offline notification");
+                Self::route_message(message_tx, msg, sender, "offline notification");
             }
             // IPMSG_ANSENTRY: Response to BR_ENTRY (also indicates online presence)
             msg_type::IPMSG_ANSENTRY => {
                 debug!("📢 Handling ANSENTRY (peer online response)");
                 Self::handle_online_msg(peer_repo, &msg, sender)?;
-                Self::route_message(&message_tx, msg, sender, "presence response");
+                Self::route_message(message_tx, msg, sender, "presence response");
             }
             // IPMSG_SENDMSG: Text message - route to MessageHandler
             msg_type::IPMSG_SENDMSG => {
@@ -252,7 +252,7 @@ impl PeerManager {
                     msg.sender_name,
                     msg.content.chars().take(100).collect::<String>()
                 );
-                Self::route_message(&message_tx, msg, sender, "text message");
+                Self::route_message(message_tx, msg, sender, "text message");
             }
             // IPMSG_RECVMSG: Message acknowledgment - route to MessageHandler
             msg_type::IPMSG_RECVMSG => {
@@ -260,7 +260,7 @@ impl PeerManager {
                     "✅ [RECEIPT ACK] Routing message acknowledgment to MessageHandler: from={}, packet_id={}",
                     msg.sender_name, msg.packet_id
                 );
-                Self::route_message(&message_tx, msg, sender, "acknowledgment");
+                Self::route_message(message_tx, msg, sender, "acknowledgment");
             }
             _ => {
                 // Other message types (FILE_SEND_REQ, etc.)
@@ -465,7 +465,7 @@ impl PeerManager {
         let repo = Arc::clone(&self.peer_repo);
 
         self.exec_async(|_repo| async move { repo.find_all().await })
-            .map(|models| models.iter().map(|m| PeerNode::from(m)).collect())
+            .map(|models| models.iter().map(PeerNode::from).collect())
             .unwrap_or_default()
     }
 
@@ -478,7 +478,7 @@ impl PeerManager {
         let repo = Arc::clone(&self.peer_repo);
 
         self.exec_async(|_repo| async move { repo.find_online(PEER_TIMEOUT_SECONDS).await })
-            .map(|models| models.iter().map(|m| PeerNode::from(m)).collect())
+            .map(|models| models.iter().map(PeerNode::from).collect())
             .unwrap_or_default()
     }
 

@@ -184,7 +184,7 @@ impl PeerRepository {
     pub async fn find_online(&self, timeout_seconds: i64) -> Result<Vec<PeerModel>> {
         let cutoff: NaiveDateTime = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::seconds(timeout_seconds))
-            .unwrap_or_else(|| chrono::Utc::now())
+            .unwrap_or(chrono::Utc::now())
             .naive_utc();
 
         let result = PeerEntity::find()
@@ -200,7 +200,7 @@ impl PeerRepository {
     pub async fn find_offline(&self, timeout_seconds: i64) -> Result<Vec<PeerModel>> {
         let cutoff: NaiveDateTime = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::seconds(timeout_seconds))
-            .unwrap_or_else(|| chrono::Utc::now())
+            .unwrap_or(chrono::Utc::now())
             .naive_utc();
 
         let result = PeerEntity::find()
@@ -231,7 +231,7 @@ impl PeerRepository {
     pub async fn cleanup_offline(&self, timeout_seconds: i64) -> Result<u64> {
         let cutoff: NaiveDateTime = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::seconds(timeout_seconds))
-            .unwrap_or_else(|| chrono::Utc::now())
+            .unwrap_or(chrono::Utc::now())
             .naive_utc();
 
         let result = PeerEntity::delete_many()

@@ -158,7 +158,7 @@ impl FileTransferManager {
             .as_secs();
 
         let proto_msg = ProtocolMessage {
-            version: PROTOCOL_VERSION as u8,
+            version: PROTOCOL_VERSION,
             packet_id,
             user_id: String::new(),
             sender_name: self.username.clone(),
@@ -329,7 +329,7 @@ impl FileTransferManager {
             .lock()
             .map_err(|_| NeoLanError::Other("Failed to lock pending requests".to_string()))?;
 
-        let request_id = request.id.clone();
+        let request_id = request.id;
         pending.push(request);
         tracing::info!("Added pending file transfer request: {}", request_id);
         Ok(())

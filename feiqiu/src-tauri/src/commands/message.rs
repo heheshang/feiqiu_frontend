@@ -210,10 +210,7 @@ pub async fn get_messages(
             .parse()
             .map_err(|e| NeoLanError::Validation(format!("Invalid sender IP address: {}", e)))?;
 
-        models = models
-            .into_iter()
-            .filter(|m| m.sender_ip == *sender_ip)
-            .collect();
+        models.retain(|m| m.sender_ip == *sender_ip);
     }
 
     // Apply receiver IP filter
@@ -223,25 +220,16 @@ pub async fn get_messages(
             .parse()
             .map_err(|e| NeoLanError::Validation(format!("Invalid receiver IP address: {}", e)))?;
 
-        models = models
-            .into_iter()
-            .filter(|m| m.receiver_ip == *receiver_ip)
-            .collect();
+        models.retain(|m| m.receiver_ip == *receiver_ip);
     }
 
     // Apply timestamp filters
     if let Some(after) = filters.after {
-        models = models
-            .into_iter()
-            .filter(|m| m.sent_at.and_utc().timestamp_millis() >= after)
-            .collect();
+        models.retain(|m| m.sent_at.and_utc().timestamp_millis() >= after);
     }
 
     if let Some(before) = filters.before {
-        models = models
-            .into_iter()
-            .filter(|m| m.sent_at.and_utc().timestamp_millis() <= before)
-            .collect();
+        models.retain(|m| m.sent_at.and_utc().timestamp_millis() <= before);
     }
 
     // Convert to DTOs

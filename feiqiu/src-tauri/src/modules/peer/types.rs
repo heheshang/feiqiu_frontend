@@ -9,6 +9,7 @@ use crate::storage::peer_repo::PeerModel;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::str::FromStr;
 use std::time::SystemTime;
 
 /// Peer node runtime state (in-memory representation)
@@ -216,14 +217,17 @@ impl PeerStatus {
             Self::Away => "away",
         }
     }
+}
 
-    /// Parse status from string
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for PeerStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "online" => Some(Self::Online),
-            "offline" => Some(Self::Offline),
-            "away" => Some(Self::Away),
-            _ => None,
+            "online" => Ok(Self::Online),
+            "offline" => Ok(Self::Offline),
+            "away" => Ok(Self::Away),
+            _ => Err(format!("Invalid peer status: {}", s)),
         }
     }
 }

@@ -377,7 +377,7 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
             );
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_secs() as u64)
+                .map(|d| d.as_secs())
                 .unwrap_or(1)
         })
     };
@@ -611,14 +611,14 @@ pub fn get_local_mac_address() -> Result<String> {
     use std::net::UdpSocket;
 
     // Try to get MAC from network interface
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| NeoLanError::Network(e))?;
+    let socket = UdpSocket::bind("0.0.0.0:0").map_err(NeoLanError::Network)?;
     let addr = "8.8.8.8:80";
 
     // Connect to a known address (doesn't actually send)
-    socket.connect(addr).map_err(|e| NeoLanError::Network(e))?;
+    socket.connect(addr).map_err(NeoLanError::Network)?;
 
     // Get the local address
-    let local_addr = socket.local_addr().map_err(|e| NeoLanError::Network(e))?;
+    let local_addr = socket.local_addr().map_err(NeoLanError::Network)?;
 
     // Use IP address to generate a consistent MAC-like identifier
     // This is a fallback - real implementations would query the interface
@@ -631,12 +631,12 @@ pub fn get_local_mac_address() -> Result<String> {
     };
     let mac = format!(
         "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        ip_bytes[0] as u8 ^ 0x02, // Set local bit
-        ip_bytes[1] as u8,
-        ip_bytes[2] as u8,
-        ip_bytes[3] as u8,
+        ip_bytes[0] ^ 0x02, // Set local bit
+        ip_bytes[1],
+        ip_bytes[2],
+        ip_bytes[3],
         (local_addr.port() >> 8) as u8,
-        (local_addr.port() & 0xFF) as u8,
+        local_addr.port() & 0xFF,
     );
 
     Ok(mac)

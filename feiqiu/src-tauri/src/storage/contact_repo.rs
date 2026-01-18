@@ -463,7 +463,7 @@ impl ContactRepository {
                 // Create new contact from peer
                 let now = chrono::Utc::now().naive_utc();
                 let new_contact = contacts::ActiveModel {
-                    peer_id: Set(Some(peer.id.clone())),
+                    peer_id: Set(Some(peer.id)),
                     peer_ip: Set(Some(peer.ip.clone())),
                     name: Set(peer
                         .username

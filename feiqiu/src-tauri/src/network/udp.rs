@@ -52,10 +52,10 @@ impl UdpTransport {
 
         // Bind to specified address (0.0.0.0 means all interfaces)
         let addr = format!("0.0.0.0:{}", port);
-        let socket = UdpSocket::bind(&addr).map_err(|e| NeoLanError::Network(e))?;
+        let socket = UdpSocket::bind(&addr).map_err(NeoLanError::Network)?;
 
         // Get the actual bound port (in case port was 0)
-        let local_addr = socket.local_addr().map_err(|e| NeoLanError::Network(e))?;
+        let local_addr = socket.local_addr().map_err(NeoLanError::Network)?;
         let actual_port = local_addr.port();
 
         tracing::info!("UDP socket bound to port {}", actual_port);
@@ -128,7 +128,7 @@ impl UdpTransport {
         tracing::debug!("Setting broadcast to {}", enabled);
         self.socket
             .set_broadcast(enabled)
-            .map_err(|e| NeoLanError::Network(e))?;
+            .map_err(NeoLanError::Network)?;
         Ok(())
     }
 
@@ -190,7 +190,7 @@ impl UdpTransport {
         let bytes_sent = self
             .socket
             .send_to(data, addr)
-            .map_err(|e| NeoLanError::Network(e))?;
+            .map_err(NeoLanError::Network)?;
 
         tracing::trace!("Sent {} bytes to {}", bytes_sent, addr.ip());
 
@@ -220,7 +220,7 @@ impl UdpTransport {
         let (bytes_received, addr) = self
             .socket
             .recv_from(buffer)
-            .map_err(|e| NeoLanError::Network(e))?;
+            .map_err(NeoLanError::Network)?;
 
         // Only accept IPv4 addresses
         if addr.is_ipv6() {
@@ -248,10 +248,7 @@ impl UdpTransport {
     /// # Returns
     /// * `Result<SocketAddr>` - Local socket address
     pub fn local_addr(&self) -> Result<SocketAddr> {
-        let addr = self
-            .socket
-            .local_addr()
-            .map_err(|e| NeoLanError::Network(e))?;
+        let addr = self.socket.local_addr().map_err(NeoLanError::Network)?;
 
         Ok(addr)
     }
@@ -265,10 +262,10 @@ impl UdpTransport {
     /// * `Ok(())` - Timeout set successfully
     /// * `Err(NeoLanError)` - Failed to set timeout
     pub fn set_read_timeout(&self, duration_ms: Option<u64>) -> Result<()> {
-        let timeout = duration_ms.map(|d| std::time::Duration::from_millis(d));
+        let timeout = duration_ms.map(std::time::Duration::from_millis);
         self.socket
             .set_read_timeout(timeout)
-            .map_err(|e| NeoLanError::Network(e))?;
+            .map_err(NeoLanError::Network)?;
         Ok(())
     }
 

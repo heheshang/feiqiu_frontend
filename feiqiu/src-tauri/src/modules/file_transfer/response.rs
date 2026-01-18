@@ -230,7 +230,7 @@ impl FileTransferResponse {
             .as_secs();
 
         let proto_msg = ProtocolMessage {
-            version: PROTOCOL_VERSION as u8,
+            version: PROTOCOL_VERSION,
             packet_id,
             user_id: String::new(),
             sender_name: self.username.clone(),
