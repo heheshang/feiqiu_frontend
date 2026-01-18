@@ -134,8 +134,8 @@ impl Default for MockPeerRepository {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_peer_repo_creation() {
+    #[tokio::test]
+    async fn test_peer_repo_creation() {
         let mock = MockPeerRepository::new();
         let last_seen = chrono::Utc::now().naive_utc();
 

@@ -897,7 +897,7 @@ fn test_send_accept_response() {
     };
 
     // Send accept response
-    let result = handler.send_response(&request, true, Some(8001), &udp);
+    let result = handler.send_response(&request, true, Some(8001));
 
     // May fail if no one is listening, but should not panic
     assert!(result.is_ok() || result.is_err());
@@ -928,7 +928,7 @@ fn test_send_reject_response() {
     };
 
     // Send reject response
-    let result = handler.send_response(&request, false, None, &udp);
+    let result = handler.send_response(&request, false, None);
 
     // May fail if no one is listening, but should not panic
     assert!(result.is_ok() || result.is_err());

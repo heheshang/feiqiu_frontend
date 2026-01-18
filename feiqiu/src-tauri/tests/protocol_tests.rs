@@ -1,6 +1,5 @@
 //! Protocol tests for IPMsg/FeiQ message parsing and serialization
 
-use feiqiu::network::msg_type::IPMSG_BR_ENTRY;
 use feiqiu::network::msg_type::{
     self, get_mode, has_opt, make_command, IPMSG_ENCRYPTOPT, IPMSG_FILEATTACHOPT,
     IPMSG_SENDCHECKOPT, IPMSG_SENDMSG,

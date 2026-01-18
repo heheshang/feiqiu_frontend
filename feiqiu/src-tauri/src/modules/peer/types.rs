@@ -331,9 +331,9 @@ mod tests {
         assert_eq!(PeerStatus::Offline.as_str(), "offline");
         assert_eq!(PeerStatus::Away.as_str(), "away");
 
-        assert_eq!(PeerStatus::from_str("online"), Some(PeerStatus::Online));
-        assert_eq!(PeerStatus::from_str("OFFLINE"), Some(PeerStatus::Offline));
-        assert_eq!(PeerStatus::from_str("invalid"), None);
+        assert_eq!(PeerStatus::from_str("online"), Ok(PeerStatus::Online));
+        assert_eq!(PeerStatus::from_str("OFFLINE"), Ok(PeerStatus::Offline));
+        assert!(PeerStatus::from_str("invalid").is_err());
     }
 
     #[test]
