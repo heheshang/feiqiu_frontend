@@ -3,6 +3,8 @@ pub mod audit_logs;
 pub mod contact_group_members;
 pub mod contact_groups;
 pub mod contacts;
+pub mod conversation_participants;
+pub mod conversations;
 pub mod groups;
 pub mod messages;
 pub mod peers;

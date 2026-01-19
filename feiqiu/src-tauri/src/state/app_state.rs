@@ -7,6 +7,7 @@ use crate::modules::file_transfer::FileTransferManager;
 use crate::modules::message::MessageHandler;
 use crate::modules::peer::{PeerManager, PeerNode};
 use crate::storage::contact_repo::ContactRepository;
+use crate::storage::conversation_repo::ConversationRepository;
 use crate::storage::database::establish_connection;
 use crate::storage::message_repo::MessageRepository;
 use crate::storage::peer_repo::PeerRepository;
@@ -140,6 +141,22 @@ pub enum TauriEvent {
         #[serde(rename = "deletedAt")]
         deleted_at: i64,
     },
+
+    /// Conversation created
+    #[serde(rename = "ConversationCreated")]
+    ConversationCreated {
+        #[serde(rename = "conversationId")]
+        conversation_id: i32,
+        #[serde(rename = "type")]
+        conversation_type: String,
+    },
+
+    /// Conversation updated
+    #[serde(rename = "ConversationUpdated")]
+    ConversationUpdated {
+        #[serde(rename = "conversationId")]
+        conversation_id: i32,
+    },
 }
 
 /// Peer discovered DTO for frontend
@@ -206,6 +223,9 @@ pub struct AppState {
     /// Contact repository
     contact_repo: Arc<Mutex<Option<ContactRepository>>>,
 
+    /// Conversation repository
+    conversation_repo: Arc<Mutex<Option<ConversationRepository>>>,
+
     /// Config repository
     config_repo: Arc<Mutex<Option<ConfigRepository>>>,
 
@@ -236,6 +256,7 @@ impl AppState {
             message_repo: Arc::new(Mutex::new(None)),
             peer_repo: Arc::new(Mutex::new(None)),
             contact_repo: Arc::new(Mutex::new(None)),
+            conversation_repo: Arc::new(Mutex::new(None)),
             config_repo: Arc::new(Mutex::new(None)),
             peer_manager: Arc::new(Mutex::new(None)),
             message_handler: Arc::new(Mutex::new(None)),
@@ -272,6 +293,7 @@ impl AppState {
         let message_repo = MessageRepository::new(db.clone());
         let peer_repo = PeerRepository::new(db.clone());
         let contact_repo = ContactRepository::new(db.clone());
+        let conversation_repo = ConversationRepository::new(db.clone());
         let config_repo = ConfigRepository::new(db.clone());
 
         if let Some(mut guard) = Self::safe_lock(&self.message_repo) {
@@ -282,6 +304,9 @@ impl AppState {
         }
         if let Some(mut guard) = Self::safe_lock(&self.contact_repo) {
             *guard = Some(contact_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.conversation_repo) {
+            *guard = Some(conversation_repo);
         }
         if let Some(mut guard) = Self::safe_lock(&self.config_repo) {
             *guard = Some(config_repo);
@@ -312,6 +337,7 @@ impl AppState {
         let message_repo = MessageRepository::new(db.clone());
         let peer_repo = PeerRepository::new(db.clone());
         let contact_repo = ContactRepository::new(db.clone());
+        let conversation_repo = ConversationRepository::new(db.clone());
         let config_repo = ConfigRepository::new(db.clone());
 
         if let Some(mut guard) = Self::safe_lock(&self.message_repo) {
@@ -322,6 +348,9 @@ impl AppState {
         }
         if let Some(mut guard) = Self::safe_lock(&self.contact_repo) {
             *guard = Some(contact_repo);
+        }
+        if let Some(mut guard) = Self::safe_lock(&self.conversation_repo) {
+            *guard = Some(conversation_repo);
         }
         if let Some(mut guard) = Self::safe_lock(&self.config_repo) {
             *guard = Some(config_repo);
@@ -346,6 +375,13 @@ impl AppState {
     pub fn get_peer_repo(&self) -> Option<Arc<PeerRepository>> {
         Self::safe_lock(&self.peer_repo)
             .and_then(|guard| guard.as_ref().map(|repo| Arc::new(repo.clone())))
+    }
+
+    /// Get the conversation repository
+    ///
+    /// Returns None if database hasn't been initialized.
+    pub fn get_conversation_repo(&self) -> Option<ConversationRepository> {
+        Self::safe_lock(&self.conversation_repo).and_then(|guard| guard.as_ref().cloned())
     }
 
     /// Get the contact repository

@@ -17,6 +17,7 @@ use crate::network::{get_message_type_name, msg_type, serialize_message, Protoco
 use crate::state::app_state::TauriEvent;
 use crate::state::AppState;
 use crate::storage::contact_repo::ContactRepository;
+use crate::storage::conversation_repo::ConversationRepository;
 use crate::storage::message_repo::{MessageModel, MessageRepository};
 use crate::storage::peer_repo::PeerRepository;
 use crate::{NeoLanError, Result};
@@ -54,6 +55,9 @@ pub struct MessageHandler {
 
     /// Peer repository for storing discovered peers (optional)
     peer_repo: Option<Arc<PeerRepository>>,
+
+    /// Conversation repository for managing conversations (optional)
+    conversation_repo: Option<Arc<ConversationRepository>>,
 }
 
 impl MessageHandler {
@@ -89,6 +93,7 @@ impl MessageHandler {
             file_transfer: None,
             contact_repo: None,
             peer_repo: None,
+            conversation_repo: None,
         }
     }
 
@@ -115,6 +120,7 @@ impl MessageHandler {
             file_transfer: None,
             contact_repo: None,
             peer_repo: None,
+            conversation_repo: None,
         }
     }
 
@@ -151,6 +157,15 @@ impl MessageHandler {
     /// * `peer_repo` - Peer repository reference
     pub fn with_peer_repo(mut self, peer_repo: Arc<PeerRepository>) -> Self {
         self.peer_repo = Some(peer_repo);
+        self
+    }
+
+    /// Set the conversation repository for managing conversations
+    ///
+    /// # Arguments
+    /// * `conversation_repo` - Conversation repository reference
+    pub fn with_conversation_repo(mut self, conversation_repo: Arc<ConversationRepository>) -> Self {
+        self.conversation_repo = Some(conversation_repo);
         self
     }
 
@@ -627,15 +642,41 @@ impl MessageHandler {
         sender_ip: IpAddr,
         local_ip: IpAddr,
     ) -> Result<()> {
+        // Get IP addresses as strings
+        let sender_ip_str = sender_ip.to_string();
+        let local_ip_str = local_ip.to_string();
+
+        // Ensure conversation exists (async database operation)
+        if let Some(ref conv_repo) = self.conversation_repo {
+            match conv_repo
+                .find_or_create_single_conversation(&local_ip_str, &sender_ip_str)
+                .await
+            {
+                Ok(_conversation) => {
+                    tracing::debug!(
+                        "✅ Conversation ensured for message from {}",
+                        sender_ip_str
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "⚠️ Failed to create conversation for {}: {:?}",
+                        sender_ip_str,
+                        e
+                    );
+                }
+            }
+        }
+
         // Store to database
         if let Some(ref repo) = self.message_repo {
             let message_model = MessageModel {
                 id: 0, // Auto-increment
                 msg_id: proto_msg.packet_id.to_string(),
                 user_id: Some(proto_msg.user_id.clone()),
-                sender_ip: sender_ip.to_string(),
+                sender_ip: sender_ip_str,
                 sender_name: proto_msg.sender_name.clone(),
-                receiver_ip: local_ip.to_string(),
+                receiver_ip: local_ip_str,
                 msg_type: proto_msg.msg_type as i32,
                 content: proto_msg.content.clone(),
                 is_encrypted: msg_type::has_opt(proto_msg.msg_type, msg_type::IPMSG_ENCRYPTOPT),

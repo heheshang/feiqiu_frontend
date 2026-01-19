@@ -118,6 +118,30 @@ pub async fn send_message(
     let config = state.get_config();
     let local_ip = config.bind_ip.clone();
 
+    // Ensure conversation exists before sending
+    if let Some(conv_repo) = state.get_conversation_repo() {
+        match conv_repo
+            .find_or_create_single_conversation(&local_ip, &receiver_ip)
+            .await
+        {
+            Ok(_conversation) => {
+                tracing::debug!(
+                    "✅ Conversation ensured for sending to {}",
+                    receiver_ip
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "⚠️ Failed to create conversation for {}: {:?}",
+                    receiver_ip,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::warn!("⚠️ Conversation repository not available");
+    }
+
     // Send message through state
     let msg_id = state.send_message(target_ip, &content)?;
 

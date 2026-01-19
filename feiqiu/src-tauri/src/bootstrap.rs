@@ -177,6 +177,20 @@ fn emit_event(app_handle: &tauri::AppHandle, event: &TauriEvent) {
                 app_handle.emit("file-transfer-rejected", event),
             )
         }
+        TauriEvent::ConversationCreated { conversation_id, .. } => {
+            tracing::info!("📤 [TAURI EMIT] conversation-created: conversation_id={}", conversation_id);
+            (
+                "conversation-created",
+                app_handle.emit("conversation-created", event),
+            )
+        }
+        TauriEvent::ConversationUpdated { conversation_id, .. } => {
+            tracing::info!("📤 [TAURI EMIT] conversation-updated: conversation_id={}", conversation_id);
+            (
+                "conversation-updated",
+                app_handle.emit("conversation-updated", event),
+            )
+        }
     };
 
     if let Err(e) = result {
@@ -274,6 +288,7 @@ fn init_message_handler(app_state: &AppState, udp_send: UdpTransport, config: &A
     // Get repositories from AppState
     let peer_repo = app_state.get_peer_repo();
     let contact_repo = app_state.get_contact_repo();
+    let conversation_repo = app_state.get_conversation_repo();
 
     let mut handler = MessageHandler::new(udp_send, config.clone()).with_app_state(app_state_arc);
 
@@ -293,6 +308,14 @@ fn init_message_handler(app_state: &AppState, udp_send: UdpTransport, config: &A
         tracing::info!("Contact repository injected into MessageHandler");
     } else {
         tracing::warn!("⚠️ Contact repository not available - contacts will not be auto-created");
+    }
+
+    // Inject conversation repository
+    if let Some(repo) = conversation_repo {
+        handler = handler.with_conversation_repo(Arc::new(repo));
+        tracing::info!("Conversation repository injected into MessageHandler");
+    } else {
+        tracing::warn!("⚠️ Conversation repository not available - conversations will not be auto-created");
     }
 
     app_state.init_message_handler(handler);

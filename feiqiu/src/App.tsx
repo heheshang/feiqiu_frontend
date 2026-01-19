@@ -1,37 +1,58 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { AppShell } from './components/shell'
-import { BasicSettings } from './components/basic-settings'
-import { Messaging } from './components/messaging'
-import { FileTransfer } from './components/file-transfer'
-import { CollaborationTools } from './components/collaboration'
-import { OrganizationChart } from './components/organization'
-import { Contacts } from './components/contacts'
-import { NavTab, UserStatus } from './lib/types/shell'
-import { useDarkMode } from './hooks/useDarkMode'
-import { User as SettingsUser, NetworkConfig, NetworkStatus } from './lib/types/basic-settings'
-import { Conversation, User as MessagingUser } from './lib/types/messaging'
-import { FileTransfer as FileTransferType, User as FTUser } from './lib/types/file-transfer'
-import { Screenshot, User as ColUser } from './lib/types/collaboration'
-import { Department, User as OrgUser } from './lib/types/organization'
-import { contactsApi } from './lib/api'
-import { onEvent } from './lib/events'
-import type { MessageReceivedEvent } from './lib/events'
-import type { CreateContactInput } from './lib/types/contacts'
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { AppShell } from "./components/shell";
+import { BasicSettings } from "./components/basic-settings";
+import { Messaging } from "./components/messaging";
+import { FileTransfer } from "./components/file-transfer";
+import { CollaborationTools } from "./components/collaboration";
+import { OrganizationChart } from "./components/organization";
+import { Contacts } from "./components/contacts";
+import { NavTab, UserStatus } from "./lib/types/shell";
+import { useDarkMode } from "./hooks/useDarkMode";
+import {
+  User as SettingsUser,
+  NetworkConfig,
+  NetworkStatus,
+} from "./lib/types/basic-settings";
+import {
+  Conversation,
+  User as MessagingUser,
+  MessageType,
+} from "./lib/types/messaging";
+import {
+  FileTransfer as FileTransferType,
+  User as FTUser,
+} from "./lib/types/file-transfer";
+import { Screenshot, User as ColUser } from "./lib/types/collaboration";
+import { Department, User as OrgUser } from "./lib/types/organization";
+import { contactsApi } from "./lib/api";
+import { onEvent } from "./lib/events";
+import type { MessageReceivedEvent } from "./lib/events";
+import type { CreateContactInput } from "./lib/types/contacts";
+import type { ConversationDto } from "./lib/types/conversations";
 
 // New hooks for real data
-import { usePeers } from './hooks/usePeers'
-import { useMessages } from './hooks/useMessages'
-import { useConfig } from './hooks/useConfig'
-import { useFileTransfers } from './hooks/useFileTransfers'
-import { useContacts } from './hooks/useContacts'
-import { toMessagingUser, toSettingsUser, type Peer, type Message, type Config } from './lib/converters'
+import { usePeers } from "./hooks/usePeers";
+import { useMessages } from "./hooks/useMessages";
+import { useConfig } from "./hooks/useConfig";
+import { useFileTransfers } from "./hooks/useFileTransfers";
+import { useContacts } from "./hooks/useContacts";
+import { useConversations } from "./hooks/useConversations";
+import {
+  toMessagingUser,
+  toSettingsUser,
+  type Peer,
+  type Message,
+  type Config,
+} from "./lib/converters";
 
 interface AppUser extends SettingsUser {
-  avatar: string
+  avatar: string;
 }
 
 // Convert DTO Message to Messaging Message
-function toMessagingMessage(msg: Message): import('./lib/types/messaging').Message {
+function toMessagingMessage(
+  msg: Message,
+): import("./lib/types/messaging").Message {
   return {
     id: msg.id,
     type: msg.type,
@@ -41,234 +62,248 @@ function toMessagingMessage(msg: Message): import('./lib/types/messaging').Messa
     senderName: msg.senderName,
     status: msg.status,
     reactions: [],
-  }
+  };
 }
 
-// Convert peers to conversations (only show peers with message history)
-function peersToConversations(peers: Peer[], myIp: string, messages: Message[]): Conversation[] {
-  // Group messages by peer IP
-  const messagesByPeer = new Map<string, Message[]>()
-  messages.forEach(msg => {
-    const peerIp = msg.senderIp === myIp ? msg.receiverIp : msg.senderIp
-    if (!messagesByPeer.has(peerIp)) {
-      messagesByPeer.set(peerIp, [])
-    }
-    messagesByPeer.get(peerIp)!.push(msg)
-  })
+/**
+ * Convert ConversationDto from backend to frontend Conversation type
+ * Uses peer IP as the conversation ID for compatibility with Messaging component
+ */
+function toFrontendConversation(
+  dto: ConversationDto,
+  peers: Peer[],
+): Conversation | null {
+  // Get the first participant (for single conversations)
+  const participant = dto.participants[0];
+  if (!participant) {
+    return null;
+  }
 
-  // Create conversations from peers (only those with messages)
-  return peers
-    .filter(peer => messagesByPeer.has(peer.ip)) // Only include peers with message history
-    .map(peer => {
-      const peerMessages = messagesByPeer.get(peer.ip) || []
-      const lastMessage = peerMessages[peerMessages.length - 1]
+  // Find peer by IP to get display info
+  const peer = peers.find((p) => p.ip === participant.peerIp);
+  if (!peer) {
+    // Skip conversations with no peer info
+    return null;
+  }
 
-      return {
-        id: peer.ip,
-        type: 'single' as const,
-        pinned: false,
-        unreadCount: peerMessages.filter(m => m.status === 'unread').length,
-        lastMessage: lastMessage ? {
-          id: lastMessage.id,
-          content: lastMessage.content,
-          type: lastMessage.type,
-          timestamp: lastMessage.timestamp,
-          senderId: lastMessage.senderId,
-          senderName: lastMessage.senderName,
-        } : undefined,
-        participant: toMessagingUser(peer),
-        messages: peerMessages.map(toMessagingMessage),
-      }
-    })
+  // Convert timestamp from i64 milliseconds to string
+  const lastMessageTimestamp = dto.lastMessageAt
+    ? new Date(dto.lastMessageAt).toISOString()
+    : new Date().toISOString();
+
+  return {
+    id: participant.peerIp, // Use peer IP as conversation ID
+    type: dto.type,
+    pinned: dto.isPinned,
+    unreadCount: dto.unreadCount,
+    lastMessage:
+      dto.lastMessageContent && dto.lastMessageAt
+        ? {
+            id: dto.lastMessageId?.toString() || "",
+            content: dto.lastMessageContent,
+            type: (dto.lastMessageType as MessageType) || "text",
+            timestamp: lastMessageTimestamp,
+            senderId: participant.peerIp,
+            senderName: peer.name || peer.ip,
+          }
+        : undefined,
+    participant: toMessagingUser(peer),
+  };
 }
 
 function App() {
-  const { theme, toggleTheme } = useDarkMode()
-  const [activeTab, setActiveTab] = useState<NavTab>('chat')
-  const [showSettings, setShowSettings] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'network'>('profile')
+  const { theme, toggleTheme } = useDarkMode();
+  const [activeTab, setActiveTab] = useState<NavTab>("chat");
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"profile" | "network">(
+    "profile",
+  );
 
   // Real data hooks
-  const { peers, isLoading: peersLoading } = usePeers({ enabled: true })
-  const { messages, sendMessage: sendBackendMessage } = useMessages({ enabled: true })
-  const { config, updateConfig } = useConfig({ enabled: true })
-  const { transfers, acceptTransfer, rejectTransfer, cancelTransfer } = useFileTransfers({ enabled: true })
-  const { contacts } = useContacts({ enabled: true, refreshInterval: 0 })
+  const { peers, isLoading: peersLoading } = usePeers({ enabled: true });
+  const { messages, sendMessage: sendBackendMessage } = useMessages({
+    enabled: true,
+  });
+  const { config, updateConfig } = useConfig({ enabled: true });
+  const { transfers, acceptTransfer, rejectTransfer, cancelTransfer } =
+    useFileTransfers({ enabled: true });
+  const { contacts } = useContacts({ enabled: true, refreshInterval: 0 });
+  const { conversations: conversationDtos, isLoading: conversationsLoading } =
+    useConversations({
+      enabled: true,
+    });
 
   // Local state
   const [user, setUser] = useState<AppUser>({
-    id: 'local',
-    name: config?.username || '用户',
-    avatar: config?.avatar || '',
-    avatarUrl: config?.avatar || '',
-    signature: '',
-    status: (config?.status as UserStatus) || 'online',
-    department: '',
-  })
+    id: "local",
+    name: config?.username || "用户",
+    avatar: config?.avatar || "",
+    avatarUrl: config?.avatar || "",
+    signature: "",
+    status: (config?.status as UserStatus) || "online",
+    department: "",
+  });
 
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [manuallyAddedConversations, setManuallyAddedConversations] = useState<Set<string>>(new Set())
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null
+  >(null);
 
   // Update user when config changes
   useEffect(() => {
     if (config) {
-      setUser(prev => ({
+      setUser((prev) => ({
         ...prev,
         name: config.username,
-        avatar: config.avatar || '',
-        avatarUrl: config.avatar || '',
+        avatar: config.avatar || "",
+        avatarUrl: config.avatar || "",
         status: config.status as UserStatus,
-      }))
+      }));
     }
-  }, [config])
+  }, [config]);
 
-  // Auto-select first conversation on mount
+  // Auto-select first conversation on mount (from persisted conversations)
   useEffect(() => {
-    if (peers.length > 0 && !activeConversationId) {
-      setActiveConversationId(peers[0].ip)
-    }
-  }, [peers, activeConversationId])
-
-  // Derive conversations from peers and messages
-  const conversations = useMemo(() => {
-    const myIp = config?.bindIp || '0.0.0.0'
-    const peerConversations = peersToConversations(peers, myIp, messages)
-
-    // Add manually added conversations from contacts
-    const manuallyAddedConversationsList: Conversation[] = []
-    for (const conversationId of manuallyAddedConversations) {
-      const peer = peers.find(p => p.ip === conversationId)
-      if (peer) {
-        manuallyAddedConversationsList.push({
-          id: peer.ip,
-          type: 'single',
-          pinned: false,
-          unreadCount: 0,
-          lastMessage: undefined,
-          participant: toMessagingUser(peer),
-          messages: [],
-        })
+    if (!activeConversationId && conversationDtos.length > 0) {
+      // Find first conversation with a participant
+      const firstConv = conversationDtos[0];
+      if (firstConv.participants[0]) {
+        setActiveConversationId(firstConv.participants[0].peerIp);
       }
     }
+  }, [conversationDtos, activeConversationId]);
 
-    // Merge conversations (avoid duplicates)
-    const existingIds = new Set(peerConversations.map(c => c.id))
-    const uniqueManualConversations = manuallyAddedConversationsList.filter(conv => !existingIds.has(conv.id))
-
-    return [...peerConversations, ...uniqueManualConversations]
-  }, [peers, messages, config?.bindIp, manuallyAddedConversations])
+  // Convert ConversationDto to frontend Conversation type
+  const conversations = useMemo(() => {
+    return conversationDtos
+      .map((dto: ConversationDto) => toFrontendConversation(dto, peers))
+      .filter((c: Conversation | null): c is Conversation => c !== null);
+  }, [conversationDtos, peers]);
 
   // Current user for messaging
-  const currentUser: MessagingUser = useMemo(() => ({
-    id: 'local',
-    name: user.name,
-    avatar: user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.name}`,
-    status: user.status,
-  }), [user.name, user.avatarUrl, user.status])
+  const currentUser: MessagingUser = useMemo(
+    () => ({
+      id: "local",
+      name: user.name,
+      avatar:
+        user.avatarUrl ||
+        `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.name}`,
+      status: user.status,
+    }),
+    [user.name, user.avatarUrl, user.status],
+  );
 
   // Network config from real config
-  const networkConfig: NetworkConfig = useMemo(() => ({
-    id: 'net-config-001',
-    udpPort: config?.udpPort || 2425,
-    bindAddress: config?.bindIp || '0.0.0.0',
-    broadcastAddress: '255.255.255.255',
-    maxRetries: 3,
-    timeout: 5000,
-  }), [config])
+  const networkConfig: NetworkConfig = useMemo(
+    () => ({
+      id: "net-config-001",
+      udpPort: config?.udpPort || 2425,
+      bindAddress: config?.bindIp || "0.0.0.0",
+      broadcastAddress: "255.255.255.255",
+      maxRetries: 3,
+      timeout: 5000,
+    }),
+    [config],
+  );
 
   // Network status (derived)
-  const networkStatus: NetworkStatus = useMemo(() => ({
-    ipAddress: config?.bindIp || '0.0.0.0',
-    macAddress: '',
-    connectionStatus: peers.some(p => p.status === 'online') ? 'connected' : 'disconnected',
-    listeningPort: config?.udpPort || 2425,
-    lastSeen: new Date().toISOString(),
-    onlineUsers: peers.filter(p => p.status === 'online').length,
-  }), [config, peers])
+  const networkStatus: NetworkStatus = useMemo(
+    () => ({
+      ipAddress: config?.bindIp || "0.0.0.0",
+      macAddress: "",
+      connectionStatus: peers.some((p) => p.status === "online")
+        ? "connected"
+        : "disconnected",
+      listeningPort: config?.udpPort || 2425,
+      lastSeen: new Date().toISOString(),
+      onlineUsers: peers.filter((p) => p.status === "online").length,
+    }),
+    [config, peers],
+  );
 
   // File transfers converted to frontend types
-  const fileTransfers: FileTransferType[] = transfers
+  const fileTransfers: FileTransferType[] = transfers;
 
   const handleSettings = () => {
-    setShowSettings(true)
-  }
+    setShowSettings(true);
+  };
 
   const handleNetworkConfig = () => {
-    setShowSettings(true)
-    setSettingsTab('network')
-  }
+    setShowSettings(true);
+    setSettingsTab("network");
+  };
 
   const handleLogout = () => {
-    console.log('Logging out...')
-  }
+    console.log("Logging out...");
+  };
 
   const handleUpdateUser = async (updatedUser: Partial<AppUser>) => {
-    setUser((prev) => ({ ...prev, ...updatedUser }))
+    setUser((prev) => ({ ...prev, ...updatedUser }));
     if (updatedUser.status) {
-      await updateConfig({ status: updatedUser.status })
+      await updateConfig({ status: updatedUser.status });
     }
     if (updatedUser.name) {
-      await updateConfig({ username: updatedUser.name })
+      await updateConfig({ username: updatedUser.name });
     }
-  }
+  };
 
   const handleStatusChange = async (status: UserStatus) => {
-    setUser((prev) => ({ ...prev, status }))
-    await updateConfig({ status })
-  }
+    setUser((prev) => ({ ...prev, status }));
+    await updateConfig({ status });
+  };
 
   const handleSendMessage = async (conversationId: string, content: string) => {
-    await sendBackendMessage(content, conversationId)
-  }
+    await sendBackendMessage(content, conversationId);
+  };
 
   const handleStartConversation = (contactId: string) => {
-    // Add to manually added conversations
-    setManuallyAddedConversations(prev => new Set([...prev, contactId]))
     // Switch to chat tab
-    setActiveTab('chat')
-    // Select the conversation
-    setActiveConversationId(contactId)
-  }
+    setActiveTab("chat");
+    // Select the conversation (already created/persisted by Contacts.tsx)
+    setActiveConversationId(contactId);
+  };
 
   const handleSendImage = (conversationId: string, file: File) => {
-    console.log('Send image:', { conversationId, fileName: file.name })
+    console.log("Send image:", { conversationId, fileName: file.name });
     // TODO: Implement file/image sending
-  }
+  };
 
   const handleFileTransferPause = (id: string) => {
-    cancelTransfer(id)
-  }
+    cancelTransfer(id);
+  };
 
   const handleFileTransferResume = (id: string) => {
     // TODO: Implement resume (may need backend support)
-    console.log('Resume transfer:', id)
-  }
+    console.log("Resume transfer:", id);
+  };
 
   const handleFileTransferCancel = (id: string) => {
-    cancelTransfer(id)
-  }
+    cancelTransfer(id);
+  };
 
   const handleFileTransferRetry = (id: string) => {
     // TODO: Implement retry (may need backend support)
-    console.log('Retry transfer:', id)
-  }
+    console.log("Retry transfer:", id);
+  };
 
   const handleSendFile = (files: File[]) => {
-    console.log('Send files:', files.map(f => f.name))
+    console.log(
+      "Send files:",
+      files.map((f) => f.name),
+    );
     // TODO: Implement file sending
-  }
+  };
 
   const handleAcceptTransfer = (id: string) => {
-    acceptTransfer(id)
-  }
+    acceptTransfer(id);
+  };
 
   const handleRejectTransfer = (id: string) => {
-    rejectTransfer(id)
-  }
+    rejectTransfer(id);
+  };
 
   const handleScreenshot = (type: string) => {
-    console.log('Screenshot type:', type)
-  }
+    console.log("Screenshot type:", type);
+  };
 
   const renderContent = () => {
     if (showSettings) {
@@ -285,34 +320,34 @@ function App() {
             await updateConfig({
               bindIp: config.bindAddress,
               udpPort: config.udpPort,
-            })
+            });
           }}
           onCancelNetworkConfig={() => setShowSettings(false)}
         />
-      )
+      );
     }
 
     switch (activeTab) {
-      case 'chat':
+      case "chat":
         return (
           <Messaging
-            conversations={conversations}
+            peers={peers}
             currentUser={currentUser}
             activeConversationId={activeConversationId}
             onConversationSelect={setActiveConversationId}
             onSendMessage={handleSendMessage}
             onSendImage={handleSendImage}
-            onMessageReply={(id) => console.log('Reply to:', id)}
-            onMessageReact={(id, emoji) => console.log('React:', id, emoji)}
-            onMessageRetract={(id) => console.log('Retract:', id)}
+            onMessageReply={(id) => console.log("Reply to:", id)}
+            onMessageReact={(id, emoji) => console.log("React:", id, emoji)}
+            onMessageRetract={(id) => console.log("Retract:", id)}
           />
-        )
-      case 'contacts':
-        return <Contacts onStartConversation={handleStartConversation} />
-      case 'files':
+        );
+      case "contacts":
+        return <Contacts onStartConversation={handleStartConversation} />;
+      case "files":
         return (
           <FileTransfer
-            currentUser ={currentUser}
+            currentUser={currentUser}
             fileTransfers={fileTransfers}
             users={{}}
             onPause={handleFileTransferPause}
@@ -323,26 +358,28 @@ function App() {
             onAcceptTransfer={handleAcceptTransfer}
             onRejectTransfer={handleRejectTransfer}
           />
-        )
-      case 'organization':
+        );
+      case "organization":
         // TODO: Implement organization chart with real data
         return (
           <div className="flex-1 flex items-center justify-center h-full">
-            <p className="text-slate-400 dark:text-slate-500">组织架构功能开发中</p>
+            <p className="text-slate-400 dark:text-slate-500">
+              组织架构功能开发中
+            </p>
           </div>
-        )
+        );
       default:
-        return null
+        return null;
     }
-  }
+  };
 
   return (
     <AppShell
       mainNav={{
         activeTab,
         onTabChange: (tab) => {
-          setActiveTab(tab)
-          setShowSettings(false)
+          setActiveTab(tab);
+          setShowSettings(false);
         },
         user: {
           name: user.name,
@@ -358,15 +395,30 @@ function App() {
           status: user.status,
         },
         menuItems: [
-          { id: 'settings', label: '个人设置', icon: 'settings', action: handleSettings },
-          { id: 'network', label: '网络设置', icon: 'network', action: handleNetworkConfig },
-          { id: 'logout', label: '退出登录', icon: 'logout', action: handleLogout },
+          {
+            id: "settings",
+            label: "个人设置",
+            icon: "settings",
+            action: handleSettings,
+          },
+          {
+            id: "network",
+            label: "网络设置",
+            icon: "network",
+            action: handleNetworkConfig,
+          },
+          {
+            id: "logout",
+            label: "退出登录",
+            icon: "logout",
+            action: handleLogout,
+          },
         ],
       }}
     >
       {renderContent()}
     </AppShell>
-  )
+  );
 }
 
-export default App
+export default App;

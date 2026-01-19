@@ -26,6 +26,10 @@ use commands::contacts::{
     delete_contact_group, get_contact, get_contact_groups, get_contact_stats, get_contacts,
     remove_contacts_from_group, search_contacts, update_contact, update_contact_group,
 };
+use commands::conversation::{
+    delete_conversation, get_conversations, get_or_create_conversation, mark_conversation_read,
+    update_conversation,
+};
 use commands::events::poll_events;
 use commands::file_transfer::{
     accept_file_transfer, cancel_file_transfer, get_file_transfers, reject_file_transfer,
@@ -105,6 +109,12 @@ pub fn run() {
             remove_contacts_from_group,
             search_contacts,
             get_contact_stats,
+            // Conversations
+            get_conversations,
+            get_or_create_conversation,
+            update_conversation,
+            mark_conversation_read,
+            delete_conversation,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| {

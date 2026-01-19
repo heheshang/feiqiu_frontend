@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod contacts;
+pub mod conversation;
 pub mod events;
 pub mod file_transfer;
 pub mod message;
