@@ -30,6 +30,7 @@ use feiqiu::utils;
 #[derive(Debug, Clone)]
 struct FeiqUser {
     ip: IpAddr,
+    #[allow(dead_code)]
     port: u16,
     username: String,
     hostname: String,
@@ -160,101 +161,6 @@ impl FeiqDiscovery {
         Ok(())
     }
 
-    /// 处理接收到的消息
-    fn handle_message(
-        &mut self,
-        data: &[u8],
-        sender: SocketAddr,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let (command, username, hostname, extra) = parse_ipmsg_message(data)?;
-        let ip = sender.ip();
-
-        match command {
-            msg_type::IPMSG_BR_ENTRY => {
-                // 收到飞秋用户的上线广播
-                // 检查是否是重复消息
-                if self.users.lock().unwrap().contains_key(&ip) {
-                    return Ok(());
-                }
-
-                // 添加到用户列表
-                let user = FeiqUser::new(ip, sender.port(), username.clone(), hostname.clone());
-                println!("👤 发现用户: {} ({})", user.display_name(), ip);
-                println!("   主机名: {}", hostname);
-                println!("   端口: {}", sender.port());
-
-                self.users.lock().unwrap().insert(ip, user.clone());
-
-                // 发送应答消息（与 Python RecvData.py 逻辑一致）
-                self.send_answer(&user)?;
-
-                // 显示当前用户总数
-                println!();
-                println!("📊 当前在线用户: {} 人", self.users.lock().unwrap().len());
-                println!();
-            }
-            msg_type::IPMSG_ANSENTRY => {
-                // 收到入场应答（与 Python RecvData.py 逻辑一致）
-                if !self.users.lock().unwrap().contains_key(&ip) {
-                    let user = FeiqUser::new(ip, sender.port(), username.clone(), hostname);
-                    self.users.lock().unwrap().insert(ip, user);
-                    println!("✅ {} 已在线 ({})", username, ip);
-                }
-            }
-            msg_type::IPMSG_BR_EXIT => {
-                // 收到下线广播（与 Python RecvData.py 逻辑一致）
-                println!("👋 {} 下线 ({})", username, ip);
-                self.users.lock().unwrap().remove(&ip);
-                println!();
-                println!("📊 当前在线用户: {} 人", self.users.lock().unwrap().len());
-                println!();
-            }
-            msg_type::IPMSG_SENDMSG => {
-                // 收到消息（与 Python RecvData.py 逻辑一致）
-                println!("💬 收到消息: {} ({}) >> {}", username, ip, extra);
-
-                // 自动回复已收到（IPMSG_RECVMSG）
-                let recv_msg = create_ipmsg_message(
-                    self.packet_id,
-                    &self.local_username,
-                    &self.local_hostname,
-                    msg_type::IPMSG_RECVMSG,
-                    "",
-                );
-                let addr = SocketAddr::new(ip, sender.port());
-                self.socket.send_to(&recv_msg, addr)?;
-                self.packet_id += 1;
-            }
-            _ => {
-                // 其他消息类型
-                println!(
-                    "📩 收到消息 (类型: 0x{:08X}) 来自: {}",
-                    command,
-                    sender.ip()
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    /// 发送入场应答
-    fn send_answer(&mut self, user: &FeiqUser) -> Result<(), Box<dyn std::error::Error>> {
-        let message = create_ipmsg_message(
-            self.packet_id,
-            &self.local_username,
-            &self.local_hostname,
-            msg_type::IPMSG_ANSENTRY,
-            "",
-        );
-
-        let addr = SocketAddr::new(user.ip, user.port);
-        self.socket.send_to(&message, addr)?;
-
-        self.packet_id += 1;
-        Ok(())
-    }
-
     /// 显示用户列表
     fn print_users(&self) {
         let users = self.users.lock().unwrap();
@@ -291,47 +197,6 @@ impl FeiqDiscovery {
         }
 
         println!("╚═══════════════════════════════════════════════════════════════╝");
-    }
-
-    /// 运行发现循环
-    fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut buffer = [0u8; 65535];
-        let mut last_broadcast = std::time::Instant::now();
-        const BROADCAST_INTERVAL: Duration = Duration::from_secs(30);
-
-        println!("🔍 正在搜索飞秋用户...");
-        println!("💡 提示：确保飞秋在同一局域网且端口 2425 未被防火墙阻止");
-        println!();
-
-        loop {
-            // 定期发送上线广播
-            if last_broadcast.elapsed() >= BROADCAST_INTERVAL {
-                self.broadcast_online()?;
-                last_broadcast = std::time::Instant::now();
-            }
-
-            // 接收消息（非阻塞）
-            self.socket
-                .set_read_timeout(Some(Duration::from_millis(100)))?;
-
-            match self.socket.recv_from(&mut buffer) {
-                Ok((len, sender)) => {
-                    if let Err(e) = self.handle_message(&buffer[..len], sender) {
-                        eprintln!("处理消息错误: {:?}", e);
-                    }
-                }
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut =>
-                {
-                    // 超时是正常的（Windows 返回 TimedOut，Unix 返回 WouldBlock）
-                    // 继续循环
-                }
-                Err(e) => {
-                    eprintln!("接收错误: {:?}", e);
-                }
-            }
-        }
     }
 }
 
