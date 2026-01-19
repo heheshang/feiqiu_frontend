@@ -256,6 +256,235 @@ pub struct FileSendResponse {
     pub port: Option<u16>,
 }
 
+/// Represents the detected message format type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MessageFormat {
+    /// Standard IPMsg format: version:packet_id:sender_name:sender_host:msg_type:content
+    Standard,
+    /// FeiQ format: version:timestamp:user_id:hostname:msg_type:content
+    FeiQ,
+}
+
+/// Intermediate parsing context
+#[derive(Debug)]
+struct ParseContext<'a> {
+    /// Raw message fields
+    fields: Vec<&'a str>,
+    /// Detected format type
+    format: MessageFormat,
+}
+
+impl<'a> ParseContext<'a> {
+    /// Create a new parse context from raw fields
+    fn new(fields: Vec<&'a str>, format: MessageFormat, _original: &'a str) -> Self {
+        Self {
+            fields,
+            format,
+        }
+    }
+
+    /// Get a field by index, returning error if missing
+    fn get_field(&self, index: usize) -> Result<&'a str> {
+        self.fields
+            .get(index)
+            .copied()
+            .ok_or_else(|| NeoLanError::Protocol(format!("Missing field at index {}", index)))
+    }
+
+    /// Check if this is FeiQ format
+    fn is_feiq(&self) -> bool {
+        self.format == MessageFormat::FeiQ
+    }
+}
+
+/// Detect message format from field layout
+///
+/// FeiQ format has a 10-digit timestamp at fields[1]
+/// Standard IPMsg has packet_id at fields[1]
+fn detect_message_format(fields: &[&str]) -> MessageFormat {
+    // FeiQ format detection:
+    // - Must have at least 6 fields
+    // - Second field (fields[1]) must be exactly 10 digits (Unix timestamp)
+    if fields.len() >= 6
+        && fields[1].len() == 10
+        && fields[1].chars().all(|c| c.is_ascii_digit())
+    {
+        tracing::debug!("Detected FeiQ format message (timestamp field at index 1)");
+        MessageFormat::FeiQ
+    } else {
+        tracing::debug!("Detected standard IPMsg format");
+        MessageFormat::Standard
+    }
+}
+
+/// Extract IPMsg-compatible section from message
+///
+/// Handles FeiQ hybrid format by extracting everything after the last '#'
+/// For standard IPMsg, returns the message as-is
+fn extract_ipmsg_section(message_str: &str) -> &str {
+    if let Some(last_hash_pos) = message_str.rfind('#') {
+        &message_str[last_hash_pos + 1..]
+    } else {
+        message_str
+    }
+}
+
+/// Parse version field
+fn parse_version(field: &str, format: MessageFormat) -> Result<u8> {
+    match format {
+        MessageFormat::Standard => field
+            .parse()
+            .map_err(|_| NeoLanError::Protocol(format!("Invalid version: {}", field))),
+        MessageFormat::FeiQ => {
+            // FeiQ uses version 1 by default
+            tracing::debug!("Using default version for FeiQ format");
+            Ok(PROTOCOL_VERSION)
+        }
+    }
+}
+
+/// Parse packet_id field
+///
+/// For standard IPMsg: packet_id is numeric
+/// For FeiQ: may be non-numeric, use timestamp-based fallback
+fn parse_packet_id(field: &str, format: MessageFormat) -> Result<u64> {
+    use std::time::SystemTime;
+
+    match format {
+        MessageFormat::Standard => field
+            .parse()
+            .map_err(|_| NeoLanError::Protocol(format!("Invalid packet_id: {}", field))),
+        MessageFormat::FeiQ => {
+            // Try numeric parse first, fallback to timestamp
+            Ok(field.parse::<u64>().unwrap_or_else(|_| {
+                tracing::warn!(
+                    "FeiQ packet_id '{}' is not numeric, using timestamp-based fallback",
+                    field
+                );
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(1)
+            }))
+        }
+    }
+}
+
+/// Parse sender_name based on format
+///
+/// For standard IPMsg: sender_name is at fields[2]
+/// For FeiQ: sender_name is fields[2] (converted to uppercase, like user_id)
+fn parse_sender_name(ctx: &ParseContext) -> Result<String> {
+    match ctx.format {
+        MessageFormat::Standard => Ok(ctx.get_field(2)?.to_string()),
+        MessageFormat::FeiQ => {
+            // For FeiQ, get user_id from fields[2] and convert to uppercase
+            let field2 = ctx.get_field(2)?;
+            Ok(field2.to_string().to_uppercase())
+        }
+    }
+}
+
+/// Parse sender_host based on format
+///
+/// For standard IPMsg: sender_host is at fields[3]
+/// For FeiQ: hostname is at fields[3]
+fn parse_sender_host(ctx: &ParseContext) -> Result<String> {
+    let field_index = match ctx.format {
+        MessageFormat::Standard => 3,
+        MessageFormat::FeiQ => 3,
+    };
+    Ok(ctx.get_field(field_index)?.to_string())
+}
+
+/// Extract and parse content field
+///
+/// For standard IPMsg: content is at fields[5+], needs unescaping
+/// For FeiQ: content is at fields[5+]
+fn extract_content(ctx: &ParseContext) -> Result<String> {
+    let content = if ctx.is_feiq() {
+        // For FeiQ, content is fields[5+]
+        if ctx.fields.len() > 6 {
+            ctx.fields[5..].join(PROTOCOL_DELIMITER)
+        } else {
+            ctx.get_field(5)?.to_string()
+        }
+    } else {
+        // Standard IPMsg: content is fields[5+], needs unescaping
+        let raw_content = if ctx.fields.len() > 6 {
+            ctx.fields[5..].join(PROTOCOL_DELIMITER)
+        } else {
+            ctx.get_field(5)?.to_string()
+        };
+        unescape_delimiters(&raw_content)
+    };
+
+    Ok(content)
+}
+
+/// Extract user_id based on format
+///
+/// For standard IPMsg: user_id is not present (returns empty string)
+/// For FeiQ: user_id is at fields[2] if it looks like a user_id (e.g., "T0170006")
+fn extract_user_id(ctx: &ParseContext) -> String {
+    if !ctx.is_feiq() {
+        return String::new();
+    }
+
+    // For FeiQ, try to extract user_id from fields[2]
+    // User IDs typically start with 'T' followed by digits (e.g., "T0170006")
+    if let Ok(field2) = ctx.get_field(2) {
+        // if field2.starts_with('T') && field2.len() >= 8 && field2.chars().skip(1).all(|c| c.is_ascii_digit()) {
+            return field2.to_string().to_uppercase();
+        // }
+    }
+
+    String::new()
+}
+
+/// Validate packet ID is within acceptable range
+fn validate_packet_id(packet_id: u64) -> Result<()> {
+    if packet_id > MAX_PACKET_ID {
+        return Err(NeoLanError::Protocol(format!(
+            "Packet ID out of range: {} (max {})",
+            packet_id, MAX_PACKET_ID
+        )));
+    }
+    Ok(())
+}
+
+/// Validate sender name is not empty
+fn validate_sender_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(NeoLanError::Protocol(
+            "Sender name cannot be empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate sender host is not empty
+fn validate_sender_host(host: &str) -> Result<()> {
+    if host.is_empty() {
+        return Err(NeoLanError::Protocol(
+            "Sender host cannot be empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate content size
+fn validate_content_size(content: &str) -> Result<()> {
+    if content.len() > MAX_CONTENT_SIZE {
+        return Err(NeoLanError::Protocol(format!(
+            "Content too large: {} bytes (max {})",
+            content.len(),
+            MAX_CONTENT_SIZE
+        )));
+    }
+    Ok(())
+}
+
 /// Parse a byte stream into a ProtocolMessage
 ///
 /// # Arguments
@@ -273,33 +502,22 @@ pub struct FileSendResponse {
 /// ```no_run
 /// # use feiqiu::network::parse_message;
 /// # use feiqiu::NeoLanError;
-/// let data = b"1:123:Alice:alice-pc:4:Hello World";
+/// let data = b"1_lbt6_0#128#5C60BA7361C6#1944#0#0#4001#9:1765442982:T0170006:LINLINDONG-N:6291459:董琳琳DT-DTG4";
 /// let msg = parse_message(data)?;
 /// # Ok::<(), NeoLanError>(())
 /// ```
 pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
-    // Decode bytes with auto-detection (UTF-8 or GBK for FeiQ)
+    // Step 1: Decode bytes with auto-detection (UTF-8 or GBK for FeiQ)
     let message_str = decode_message_bytes(data);
     tracing::debug!("Received message: {}", message_str);
 
-    // Handle FeiQ hybrid format: contains '#' followed by IPMsg-compatible section
-    // FeiQ format: 1_lbt4_6#128#C81F663237C8#0#0#0#311c#9:1761386707:cgc:DESKTOP-IOHG15K:6291459:...
-    // The actual IPMsg section starts after the last '#'
-    let parse_section = if message_str.contains('#') {
-        // Find the last '#' and extract the IPMsg section after it
-        if let Some(last_hash_pos) = message_str.rfind('#') {
-            &message_str[last_hash_pos + 1..]
-        } else {
-            &message_str
-        }
-    } else {
-        &message_str
-    };
+    // Step 2: Extract IPMsg-compatible section (handle FeiQ hybrid format)
+    let parse_section = extract_ipmsg_section(&message_str);
 
-    // Split by delimiter
+    // Step 3: Split by delimiter
     let fields: Vec<&str> = parse_section.split(PROTOCOL_DELIMITER).collect();
 
-    // Validate minimum field count
+    // Step 4: Validate minimum field count
     if fields.len() < MIN_FIELD_COUNT {
         return Err(NeoLanError::Protocol(format!(
             "Invalid message format: expected at least {} fields, got {}. Data: {}",
@@ -308,51 +526,25 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
             parse_section
         )));
     }
-    // 1_lbt6_0#128#5C60BA7361C6#1944#0#0#4001#9:1765442982:T0170006:LINLINDONG-N:6291459:董琳琳DT-DTG4
-    // Detect FeiQ format: version:timestamp:packet_id:hostname:msg_type:content
-    // vs standard: version:packet_id:sender_name:sender_host:msg_type:content
-    // FeiQ timestamp is typically a 10-digit Unix timestamp (e.g., 1761386707) at fields[1]
-    // NOTE: In FeiQ BR_ENTRY messages, the username is in the CONTENT field, not sender_name!
-    let (version, packet_id, sender_name, sender_host, is_feiq) = {
-        // Try to detect if fields[1] is a timestamp (10-digit number)
-        // FeiQ format after stripping last '#': version:timestamp:packet_id:hostname:msg_type:content
-        if fields.len() >= 6
-            && fields[1].len() == 10
-            && fields[1].chars().all(|c| c.is_ascii_digit())
-        {
-            // FeiQ format detected
-            // fields[0]=version, fields[1]=timestamp, fields[2]=packet_id, fields[3]=hostname, fields[4]=msg_type, fields[5]=content
-            // For FeiQ BR_ENTRY, the username is in the content field, not sender_name
-            eprintln!("Detected FeiQ format message (with timestamp field)");
-            // Extract username from content field (fields[5+])
-            let content = if fields.len() > 6 {
-                fields[5..].join(PROTOCOL_DELIMITER)
-            } else {
-                fields[5].to_string()
-            };
-            (
-                PROTOCOL_VERSION,
-                fields[1],             // Packet ID field
-                content,               // Content field (contains username for BR_ENTRY)
-                fields[3].to_string(), // Hostname field
-                true,                  // Mark as FeiQ format
-            )
-        } else {
-            // Standard IPMsg format
-            let v: u8 = fields[0]
-                .parse()
-                .map_err(|_| NeoLanError::Protocol(format!("Invalid version: {}", fields[0])))?;
-            (
-                v,
-                fields[1],
-                fields[2].to_string(),
-                fields[3].to_string(),
-                false,
-            )
-        }
-    };
 
-    // Validate version (FeiQ compatibility: only warn, don't error)
+    // Step 5: Detect message format (FeiQ vs Standard IPMsg)
+    let format = detect_message_format(&fields);
+
+    // Step 6: Create parse context
+    let ctx = ParseContext::new(fields, format, parse_section);
+
+    // Step 7: Log detailed field information for debugging
+    tracing::debug!(
+        "Parsing {} format message with {} fields",
+        if ctx.is_feiq() { "FeiQ" } else { "standard IPMsg" },
+        ctx.fields.len()
+    );
+    for (i, field) in ctx.fields.iter().enumerate() {
+        tracing::trace!("  fields[{}] = '{}'", i, field);
+    }
+
+    // Step 8: Parse version field
+    let version = parse_version(ctx.get_field(0)?, ctx.format)?;
     if version != PROTOCOL_VERSION {
         tracing::warn!(
             "Protocol version {} differs from expected {}, accepting for compatibility",
@@ -361,113 +553,44 @@ pub fn parse_message(data: &[u8]) -> Result<ProtocolMessage> {
         );
     }
 
-    // Parse packet ID - for standard IPMsg it's numeric, for FeiQ it might not be
-    let packet_id: u64 = if !is_feiq {
-        // Standard IPMsg: packet_id is numeric
-        packet_id
-            .parse()
-            .map_err(|_| NeoLanError::Protocol(format!("Invalid packet_id: {}", packet_id)))?
-    } else {
-        // FeiQ: packet_id might not be numeric, use timestamp-based fallback
-        use std::time::SystemTime;
-        packet_id.parse::<u64>().unwrap_or_else(|_| {
-            tracing::warn!(
-                "FeiQ packet_id '{}' is not numeric, using timestamp-based fallback",
-                packet_id
-            );
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(1)
-        })
-    };
+    // Step 9: Parse packet_id field
+    let packet_id = parse_packet_id(ctx.get_field(1)?, ctx.format)?;
+    validate_packet_id(packet_id)?;
 
-    // Validate packet ID range
-    if packet_id > MAX_PACKET_ID {
-        return Err(NeoLanError::Protocol(format!(
-            "Packet ID out of range: {} (max {})",
-            packet_id, MAX_PACKET_ID
-        )));
-    }
+    // Step 10: Parse sender_name and sender_host (format-dependent)
+    let sender_name = parse_sender_name(&ctx)?;
+    let sender_host = parse_sender_host(&ctx)?;
 
-    // Validate sender name is not empty
-    if sender_name.is_empty() {
-        return Err(NeoLanError::Protocol(
-            "Sender name cannot be empty".to_string(),
-        ));
-    }
+    // Step 11: Validate sender fields
+    validate_sender_name(&sender_name)?;
+    validate_sender_host(&sender_host)?;
 
-    // Validate sender host is not empty
-    if sender_host.is_empty() {
-        return Err(NeoLanError::Protocol(
-            "Sender host cannot be empty".to_string(),
-        ));
-    }
+    tracing::debug!(
+        "Parsed: sender_name='{}', sender_host='{}'",
+        sender_name,
+        sender_host
+    );
 
-    // Debug log for FeiQ format detection
-    if is_feiq {
-        eprintln!("DEBUG: FeiQ format detected");
-        fields
-            .iter()
-            .enumerate()
-            .for_each(|(i, field)| eprintln!("DEBUG: fields[{}] = '{}'", i, field));
-        eprintln!(
-            "DEBUG: sender_name={}, sender_host={} ",
-            sender_name, sender_host
-        );
-    } else {
-        eprintln!("DEBUG: Standard IPMsg format");
-        eprintln!("DEBUG: fields[0]={}", fields[0]);
-        eprintln!("DEBUG: fields[1]={}", fields[1]);
-        eprintln!("DEBUG: fields[2]={}", fields[2]);
-        eprintln!("DEBUG: fields[3]={}", fields[3]);
-        eprintln!(
-            "DEBUG: sender_name={}, sender_host={}",
-            sender_name, sender_host
-        );
-    }
-
-    // Parse message type
-    // For FeiQ format: msg_type is at fields[4]
-    // For standard IPMsg format: msg_type is at fields[4]
-    let msg_type: u32 = fields[4]
+    // Step 12: Parse message type
+    let msg_type_field = ctx.get_field(4)?;
+    let msg_type: u32 = msg_type_field
         .parse()
-        .map_err(|_| NeoLanError::Protocol(format!("Invalid msg_type: {}", fields[4])))?;
-
-    // Log message type with explanation
+        .map_err(|_| NeoLanError::Protocol(format!("Invalid msg_type: {}", msg_type_field)))?;
     tracing::debug!("Message type: {}", explain_message_type(msg_type));
 
-    // Extract content
-    // For FeiQ format: content was already extracted above as sender_name
-    // For standard IPMsg format: content is at fields[5+]
-    let content = if is_feiq {
-        // For FeiQ, the content field was already used as sender_name
-        // Set content empty since it's been consumed as the username
-        String::new()
-    } else {
-        // Standard IPMsg format: content is at fields[5+]
-        let raw_content = if fields.len() > 6 {
-            fields[5..].join(PROTOCOL_DELIMITER)
-        } else {
-            fields[5].to_string()
-        };
-        // Unescape content to restore original text
-        unescape_delimiters(&raw_content)
-    };
+    // Step 13: Extract content and user_id (format-dependent)
+    let content = extract_content(&ctx)?;
+    validate_content_size(&content)?;
 
-    // Validate content size
-    if content.len() > MAX_CONTENT_SIZE {
-        return Err(NeoLanError::Protocol(format!(
-            "Content too large: {} bytes (max {})",
-            content.len(),
-            MAX_CONTENT_SIZE
-        )));
+    let user_id = extract_user_id(&ctx);
+    if !user_id.is_empty() {
+        tracing::debug!("Extracted user_id: {}", user_id);
     }
 
     Ok(ProtocolMessage {
         version,
         packet_id,
-        user_id: String::new(),
+        user_id,
         sender_name,
         sender_host,
         msg_type,
@@ -683,6 +806,8 @@ pub fn serialize_message_for_feiq(
 mod tests {
     use super::*;
 
+    // ===== Escape/Unescape Tests =====
+
     #[test]
     fn test_escape_delimiters_basic() {
         assert_eq!(escape_delimiters("hello"), "hello");
@@ -718,6 +843,204 @@ mod tests {
         assert_eq!(original, unescaped);
     }
 
+    // ===== Format Detection Tests =====
+
+    #[test]
+    fn test_detect_format_standard_ipmsg() {
+        // Standard IPMsg: version:packet_id:sender_name:sender_host:msg_type:content
+        let fields = vec!["1", "12345", "Alice", "alice-pc", "32", "Hello"];
+        assert_eq!(detect_message_format(&fields), MessageFormat::Standard);
+    }
+
+    #[test]
+    fn test_detect_format_feiq_with_timestamp() {
+        // FeiQ: version:timestamp:packet_id:hostname:msg_type:content
+        let fields = vec!["1", "1765442982", "12345", "DESKTOP-ABC", "32", "Hello"];
+        assert_eq!(detect_message_format(&fields), MessageFormat::FeiQ);
+    }
+
+    #[test]
+    fn test_detect_format_insufficient_fields() {
+        // Less than 6 fields should be detected as standard (not FeiQ)
+        let fields = vec!["1", "12345", "Alice"];
+        assert_eq!(detect_message_format(&fields), MessageFormat::Standard);
+    }
+
+    #[test]
+    fn test_detect_format_non_digit_timestamp() {
+        // Timestamp field not all digits
+        let fields = vec!["1", "abcdefghij", "12345", "DESKTOP-ABC", "32", "Hello"];
+        assert_eq!(detect_message_format(&fields), MessageFormat::Standard);
+    }
+
+    #[test]
+    fn test_detect_format_wrong_timestamp_length() {
+        // Wrong timestamp length (9 digits instead of 10)
+        let fields = vec!["1", "123456789", "12345", "DESKTOP-ABC", "32", "Hello"];
+        assert_eq!(detect_message_format(&fields), MessageFormat::Standard);
+    }
+
+    // ===== IPMsg Section Extraction Tests =====
+
+    #[test]
+    fn test_extract_ipmsg_section_standard() {
+        // Standard IPMsg format without '#'
+        let message = "1:12345:Alice:alice-pc:32:Hello";
+        assert_eq!(extract_ipmsg_section(message), message);
+    }
+
+    #[test]
+    fn test_extract_ipmsg_section_feiq() {
+        // FeiQ format with '#': 1_lbt6_0#128#5C60BA7361C6#1944#0#0#4001#9:1765442982:T0170006:LINLINDONG-N:6291459
+        // The IPMsg section after last '#' is: 9:1765442982:T0170006:LINLINDONG-N:6291459
+        // This includes a "9" field before the timestamp (part of FeiQ's extended format)
+        let message = "1_lbt6_0#128#5C60BA7361C6#1944#0#0#4001#9:1765442982:T0170006:LINLINDONG-N:6291459";
+        assert_eq!(
+            extract_ipmsg_section(message),
+            "9:1765442982:T0170006:LINLINDONG-N:6291459"
+        );
+    }
+
+    #[test]
+    fn test_extract_ipmsg_section_multiple_hashes() {
+        // Multiple '#' characters
+        let message = "header#more#data:1:12345:Alice:alice-pc:32:Hello";
+        // The last '#' is before "data:", so we get "data:1:12345:Alice:alice-pc:32:Hello"
+        assert_eq!(
+            extract_ipmsg_section(message),
+            "data:1:12345:Alice:alice-pc:32:Hello"
+        );
+    }
+
+    // ===== Field Parser Tests =====
+
+    #[test]
+    fn test_parse_version_standard() {
+        let result = parse_version("1", MessageFormat::Standard).unwrap();
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_parse_version_standard_invalid() {
+        let result = parse_version("abc", MessageFormat::Standard);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_version_feiq() {
+        let result = parse_version("ignored", MessageFormat::FeiQ).unwrap();
+        assert_eq!(result, PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn test_parse_packet_id_standard() {
+        let result = parse_packet_id("12345", MessageFormat::Standard).unwrap();
+        assert_eq!(result, 12345);
+    }
+
+    #[test]
+    fn test_parse_packet_id_feiq_numeric() {
+        let result = parse_packet_id("12345", MessageFormat::FeiQ).unwrap();
+        assert_eq!(result, 12345);
+    }
+
+    #[test]
+    fn test_parse_packet_id_standard_invalid() {
+        let result = parse_packet_id("abc", MessageFormat::Standard);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_packet_id_feiq_fallback() {
+        // FeiQ non-numeric should use timestamp fallback (returns current time)
+        let result = parse_packet_id("abc", MessageFormat::FeiQ).unwrap();
+        // Should be a reasonable timestamp (between 2020 and 2030)
+        assert!(result > 1577836800); // 2020-01-01
+        assert!(result < 1893456000); // 2030-01-01
+    }
+
+    // ===== Validation Tests =====
+
+    #[test]
+    fn test_validate_packet_id_valid() {
+        assert!(validate_packet_id(12345).is_ok());
+        assert!(validate_packet_id(MAX_PACKET_ID).is_ok());
+    }
+
+    #[test]
+    fn test_validate_packet_id_out_of_range() {
+        assert!(validate_packet_id(MAX_PACKET_ID + 1).is_err());
+    }
+
+    #[test]
+    fn test_validate_sender_name_valid() {
+        assert!(validate_sender_name("Alice").is_ok());
+        assert!(validate_sender_name("张三").is_ok());
+    }
+
+    #[test]
+    fn test_validate_sender_name_empty() {
+        assert!(validate_sender_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_sender_host_valid() {
+        assert!(validate_sender_host("localhost").is_ok());
+        assert!(validate_sender_host("DESKTOP-ABC").is_ok());
+    }
+
+    #[test]
+    fn test_validate_sender_host_empty() {
+        assert!(validate_sender_host("").is_err());
+    }
+
+    #[test]
+    fn test_validate_content_size_valid() {
+        let small_content = "a".repeat(100);
+        assert!(validate_content_size(&small_content).is_ok());
+    }
+
+    #[test]
+    fn test_validate_content_size_too_large() {
+        let large_content = "a".repeat(MAX_CONTENT_SIZE + 1);
+        assert!(validate_content_size(&large_content).is_err());
+    }
+
+    #[test]
+    fn test_validate_content_size_exact_max() {
+        let max_content = "a".repeat(MAX_CONTENT_SIZE);
+        assert!(validate_content_size(&max_content).is_ok());
+    }
+
+    // ===== ParseContext Tests =====
+
+    #[test]
+    fn test_parse_context_get_field_valid() {
+        let fields = vec!["1", "12345", "Alice"];
+        let ctx = ParseContext::new(fields, MessageFormat::Standard, "test");
+        assert_eq!(ctx.get_field(0).unwrap(), "1");
+        assert_eq!(ctx.get_field(2).unwrap(), "Alice");
+    }
+
+    #[test]
+    fn test_parse_context_get_field_invalid() {
+        let fields = vec!["1", "12345", "Alice"];
+        let ctx = ParseContext::new(fields, MessageFormat::Standard, "test");
+        assert!(ctx.get_field(10).is_err());
+    }
+
+    #[test]
+    fn test_parse_context_is_feiq() {
+        let fields = vec!["1", "12345", "Alice"];
+        let ctx_feiq = ParseContext::new(fields.clone(), MessageFormat::FeiQ, "test");
+        let ctx_std = ParseContext::new(fields, MessageFormat::Standard, "test");
+
+        assert!(ctx_feiq.is_feiq());
+        assert!(!ctx_std.is_feiq());
+    }
+
+    // ===== Integration Tests =====
+
     #[test]
     fn test_message_with_colons_in_content() {
         let msg = ProtocolMessage {
@@ -752,5 +1075,124 @@ mod tests {
         let parsed = parse_message(&serialized).unwrap();
 
         assert_eq!(parsed.content, "Path: C:\\Users\\Test");
+    }
+
+    #[test]
+    fn test_parse_standard_ipmsg_message() {
+        let data = b"1:12345:Alice:alice-pc:32:Hello World";
+        let msg = parse_message(data).unwrap();
+
+        assert_eq!(msg.version, 1);
+        assert_eq!(msg.packet_id, 12345);
+        assert_eq!(msg.sender_name, "Alice");
+        assert_eq!(msg.sender_host, "alice-pc");
+        assert_eq!(msg.msg_type, 32);
+        assert_eq!(msg.content, "Hello World");
+    }
+
+    #[test]
+    fn test_parse_feiq_format_message() {
+        // FeiQ format with timestamp at fields[1]
+        // After stripping last '#': flags:timestamp:user_id:hostname:msg_type:content
+        // fields[0]=flags, fields[1]=timestamp(10 digits), fields[2]=user_id (e.g., "T0170006"), fields[3]=hostname, fields[4]=msg_type, fields[5]=content
+        let data = b"1_lbt6_0#128#5C60BA7361C6#2425#0#4001#9:1765442982:T0170006:DESKTOP-ABC:32:Hello";
+        let msg = parse_message(data).unwrap();
+
+        assert_eq!(msg.version, 1);
+        // For FeiQ with 10-digit timestamp, the timestamp field becomes packet_id
+        assert_eq!(msg.packet_id, 1765442982);
+        assert_eq!(msg.sender_host, "DESKTOP-ABC");
+        assert_eq!(msg.msg_type, 32);
+        // For FeiQ BR_ENTRY, sender_name comes from user_id field (fields[2])
+        assert_eq!(msg.sender_name, "T0170006");
+        // user_id should be extracted from fields[2]
+        assert_eq!(msg.user_id, "T0170006");
+        // For FeiQ, content is fields[5+]
+        assert_eq!(msg.content, "Hello");
+    }
+
+    #[test]
+    fn test_parse_message_with_too_few_fields() {
+        let data = b"1:12345:Alice";
+        let result = parse_message(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_message_with_invalid_version() {
+        let data = b"abc:12345:Alice:alice-pc:32:Hello";
+        let result = parse_message(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_message_with_invalid_packet_id() {
+        let data = b"1:abc:Alice:alice-pc:32:Hello";
+        let result = parse_message(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_message_with_invalid_msg_type() {
+        let data = b"1:12345:Alice:alice-pc:abc:Hello";
+        let result = parse_message(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_serialize_and_parse_roundtrip() {
+        let original = ProtocolMessage {
+            version: 1,
+            packet_id: 999,
+            user_id: "user123".to_string(),
+            sender_name: "Bob".to_string(),
+            sender_host: "bob-desktop".to_string(),
+            msg_type: msg_type::IPMSG_SENDMSG,
+            content: "Test message with special chars: \\:".to_string(),
+        };
+
+        let serialized = serialize_message(&original).unwrap();
+        let parsed = parse_message(&serialized).unwrap();
+
+        assert_eq!(parsed.version, original.version);
+        assert_eq!(parsed.packet_id, original.packet_id);
+        assert_eq!(parsed.sender_name, original.sender_name);
+        assert_eq!(parsed.sender_host, original.sender_host);
+        assert_eq!(parsed.msg_type, original.msg_type);
+        assert_eq!(parsed.content, original.content);
+        // Note: user_id is not preserved in standard IPMsg serialization (it's FeiQ-specific)
+    }
+
+    #[test]
+    fn test_user_id_extraction_feiq() {
+        // Test that user_id is correctly extracted from FeiQ format
+        let data = b"1_lbt6_0#128#5C60BA7361C6#2425#0#4001#9:1765442982:T0170006:DESKTOP-ABC:32:Hello";
+        let msg = parse_message(data).unwrap();
+
+        assert_eq!(msg.user_id, "T0170006");
+        assert_eq!(msg.sender_name, "T0170006"); // sender_name should match user_id for FeiQ
+    }
+
+    #[test]
+    fn test_user_id_empty_standard_ipmsg() {
+        // Test that user_id is empty for standard IPMsg format
+        let data = b"1:12345:Alice:alice-pc:32:Hello World";
+        let msg = parse_message(data).unwrap();
+
+        assert!(msg.user_id.is_empty());
+        assert_eq!(msg.sender_name, "Alice");
+    }
+
+    #[test]
+    fn test_user_id_empty_feiq_without_valid_id() {
+        // Test that user_id is extracted from fields[2] and converted to uppercase
+        // (validation logic removed - user_id is always fields[2] uppercased for FeiQ)
+        let data = b"1_lbt6_0#128#5C60BA7361C6#2425#0#4001#9:1765442982:not-valid-id:DESKTOP-ABC:32:Hello";
+        let msg = parse_message(data).unwrap();
+
+        // user_id should be uppercase version of fields[2]
+        assert_eq!(msg.user_id, "NOT-VALID-ID");
+        // sender_name should match user_id (from fields[2])
+        assert_eq!(msg.sender_name, "NOT-VALID-ID");
     }
 }
